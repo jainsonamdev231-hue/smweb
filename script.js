@@ -1,14 +1,12 @@
-// Replace with your Render/Railway Python URL once deployed, or leave as localhost:5000 for local Python testing
 const PYTHON_SERVER_URL = "http://localhost:5000";
 
 let username = "";
 let userId = "user_" + Math.random().toString(36).substring(2, 9);
 let currentRoom = "global-lounge";
-let engineMode = "cloud"; // 'cloud' or 'python'
+let engineMode = "cloud";
 let mqttClient = null;
 let pySocket = null;
 
-// DOM Elements
 const loginModal = document.getElementById("login-modal");
 const usernameInput = document.getElementById("username-input");
 const serverModeSelect = document.getElementById("server-mode");
@@ -23,7 +21,6 @@ const activeRoomName = document.getElementById("active-room-name");
 const emojiTrigger = document.getElementById("emoji-trigger");
 const clearChatBtn = document.getElementById("clear-chat-btn");
 
-// Join Chat
 joinBtn.addEventListener("click", () => {
   const rawName = usernameInput.value.trim();
   username = rawName || "Explorer_" + Math.floor(1000 + Math.random() * 9000);
@@ -40,10 +37,8 @@ joinBtn.addEventListener("click", () => {
   }
 });
 
-// Option A: Serverless Global Cloud Relay (Works immediately on GitHub Pages)
 function initGlobalCloudRelay() {
   connectionBadge.textContent = "Connecting Global...";
-  // Public secure WebSocket broker for instant global rooms on GitHub Pages
   mqttClient = mqtt.connect("wss://broker.emqx.io:8084/mqtt");
 
   mqttClient.on("connect", () => {
@@ -84,7 +79,6 @@ function publishCloudMessage(msgObj) {
   mqttClient.publish(topic, JSON.stringify(msgObj));
 }
 
-// Option B: Python Flask-SocketIO Backend Server (app.py)
 function initPythonServer() {
   connectionBadge.textContent = "Connecting Python...";
   pySocket = io(PYTHON_SERVER_URL);
@@ -111,7 +105,6 @@ function initPythonServer() {
   });
 }
 
-// Send Message
 messageForm.addEventListener("submit", (e) => {
   e.preventDefault();
   const text = messageInput.value.trim();
@@ -135,7 +128,6 @@ messageForm.addEventListener("submit", (e) => {
   messageInput.value = "";
 });
 
-// Switch Channels
 document.querySelectorAll(".chat-item").forEach((item) => {
   item.addEventListener("click", () => {
     document.querySelectorAll(".chat-item").forEach((el) => el.classList.remove("active"));
@@ -157,7 +149,6 @@ document.querySelectorAll(".chat-item").forEach((item) => {
   });
 });
 
-// Render Message Bubble
 function renderMessage(msg) {
   const div = document.createElement("div");
 
@@ -178,7 +169,6 @@ function renderMessage(msg) {
   messageContainer.scrollTop = messageContainer.scrollHeight;
 }
 
-// Quick Emoji Button
 emojiTrigger.addEventListener("click", () => {
   const emojis = ["🔥", "🚀", "😂", "❤️", "👍", "🎉", "💻"];
   const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
@@ -186,7 +176,6 @@ emojiTrigger.addEventListener("click", () => {
   messageInput.focus();
 });
 
-// Clear Screen
 clearChatBtn.addEventListener("click", () => {
   messageContainer.innerHTML = "";
 });
