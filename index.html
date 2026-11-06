@@ -1,59 +1,113 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>NEXUS: GLOBAL COMM-LINK</title>
-    
-    <!-- External Library: MQTT for Browser WebSockets (This powers the global connection!) -->
-    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-    
-    <!-- Link to your CSS -->
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>smweb — Global Web Messenger</title>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <!-- Socket.IO Client for Python Backend -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <!-- MQTT Global Cloud Relay (Makes GitHub Pages work globally without paid hosting) -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-    <!-- OVERLAY: LOGIN SCREEN -->
-    <div id="login-screen" class="screen active">
-        <div class="glass-panel">
-            <h1 class="neon-title">GLOBAL NEXUS</h1>
-            <p class="subtitle">Enter your alias to join the worldwide server.</p>
-            <input type="text" id="username-input" placeholder="FIGHTER ALIAS" autocomplete="off" maxlength="15">
-            <button class="action-btn" onclick="ChatEngine.login()">CONNECT TO SERVER</button>
-        </div>
+  <!-- Login Screen -->
+  <div id="login-modal" class="modal-overlay">
+    <div class="login-box">
+      <div class="logo-circle"><i class="fa-brands fa-whatsapp"></i></div>
+      <h1>smweb</h1>
+      <p>Global Real-Time Web Messenger</p>
+      <input type="text" id="username-input" placeholder="Enter your global username..." maxlength="22" autocomplete="off" />
+      <select id="server-mode">
+        <option value="cloud">Global Serverless Cloud (Works on GitHub Pages)</option>
+        <option value="python">Python Backend Server (app.py / Render)</option>
+      </select>
+      <button id="join-btn">Launch smweb</button>
     </div>
+  </div>
 
-    <!-- MAIN CHAT ROOM -->
-    <div id="chat-screen" class="screen">
-        <div class="chat-container">
-            
-            <!-- Header -->
-            <header class="chat-header">
-                <div class="header-info">
-                    <h2>GLOBAL COMM-LINK</h2>
-                    <span id="connection-status" class="status-indicator">🔴 Disconnected</span>
-                </div>
-                <div class="user-badge" id="my-user-badge">USER</div>
-            </header>
-
-            <!-- Message Area (Where texts appear) -->
-            <main class="chat-box" id="chat-box">
-                <!-- System Welcome Message -->
-                <div class="message system-msg">
-                    <span class="msg-text">Welcome to the Nexus Global Server. Type /roll to play the dice game.</span>
-                </div>
-            </main>
-
-            <!-- Input Area -->
-            <footer class="input-area">
-                <input type="text" id="msg-input" placeholder="Broadcast a message..." autocomplete="off" maxlength="200">
-                <button class="send-btn" onclick="ChatEngine.sendMessage()">SEND</button>
-            </footer>
-
+  <!-- Main WhatsApp Web Layout -->
+  <div class="whatsapp-wrapper">
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+      <header class="sidebar-header">
+        <div class="user-profile">
+          <div class="avatar" id="my-avatar">S</div>
+          <span id="my-username-display">smweb User</span>
         </div>
-    </div>
+        <div class="status-pill" id="connection-badge">Connecting...</div>
+      </header>
 
-    <!-- Link to your JS -->
-    <script src="script.js"></script>
+      <div class="search-box">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input type="text" id="room-search" placeholder="Search global channels..." />
+      </div>
+
+      <div class="section-heading">GLOBAL CHANNELS</div>
+      <ul class="chat-list" id="channel-list">
+        <li class="chat-item active" data-room="global-lounge">
+          <div class="avatar channel-icon"><i class="fa-solid fa-earth-americas"></i></div>
+          <div class="chat-info">
+            <div class="chat-title">Global Lounge</div>
+            <div class="chat-preview">Main worldwide public chat</div>
+          </div>
+        </li>
+        <li class="chat-item" data-room="developers-hub">
+          <div class="avatar channel-icon"><i class="fa-solid fa-code"></i></div>
+          <div class="chat-info">
+            <div class="chat-title">Developers Hub</div>
+            <div class="chat-preview">Python, JS, HTML & CSS talk</div>
+          </div>
+        </li>
+        <li class="chat-item" data-room="gaming-arena">
+          <div class="avatar channel-icon"><i class="fa-solid fa-gamepad"></i></div>
+          <div class="chat-info">
+            <div class="chat-title">Gaming Arena</div>
+            <div class="chat-preview">Global multiplayer squad</div>
+          </div>
+        </li>
+        <li class="chat-item" data-room="music-chill">
+          <div class="avatar channel-icon"><i class="fa-solid fa-headphones"></i></div>
+          <div class="chat-info">
+            <div class="chat-title">Music & Chill</div>
+            <div class="chat-preview">Late night global hangout</div>
+          </div>
+        </li>
+      </ul>
+    </aside>
+
+    <!-- Right Chat Panel -->
+    <main class="chat-panel">
+      <header class="chat-header">
+        <div class="chat-header-left">
+          <div class="avatar channel-icon"><i class="fa-solid fa-comments"></i></div>
+          <div>
+            <h2 id="active-room-name">Global Lounge</h2>
+            <p id="room-subtitle">Real-time global channel</p>
+          </div>
+        </div>
+        <div class="chat-header-actions">
+          <button id="clear-chat-btn" title="Clear local screen"><i class="fa-solid fa-trash-can"></i></button>
+        </div>
+      </header>
+
+      <!-- Message Feed -->
+      <section id="message-container" class="message-container"></section>
+
+      <!-- Message Input Bar -->
+      <form id="message-form" class="chat-footer">
+        <button type="button" class="emoji-btn" id="emoji-trigger">😊</button>
+        <input type="text" id="message-input" placeholder="Type a message to the world..." autocomplete="off" />
+        <button type="submit" class="send-btn"><i class="fa-solid fa-paper-plane"></i></button>
+      </form>
+    </main>
+  </div>
+
+  <!-- External JavaScript -->
+  <script src="app.js"></script>
 </body>
 </html>
