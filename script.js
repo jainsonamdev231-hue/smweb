@@ -1,168 +1,206 @@
-/**
- * NEXUS: GLOBAL CHAT & GAME ENGINE
- * Uses MQTT over WebSockets for serverless global real-time networking.
- */
+// Replace with your Render/Railway Python URL once deployed, or leave as localhost:5000 for local Python testing
+const PYTHON_SERVER_URL = "http://localhost:5000";
 
-const ChatEngine = {
-    // 1. Core State
-    username: "",
-    client: null,
-    
-    // This is our secret "room name". Anyone in the world subscribed to this exact string sees our chat.
-    globalTopic: "nexus/global/chat/room/alpha/777", 
+let username = "";
+let userId = "user_" + Math.random().toString(36).substring(2, 9);
+let currentRoom = "global-lounge";
+let engineMode = "cloud"; // 'cloud' or 'python'
+let mqttClient = null;
+let pySocket = null;
 
-    // --- 1. LOGIN & INITIALIZATION ---
-    login() {
-        let inputEl = document.getElementById('username-input');
-        let name = inputEl.value.trim();
-        
-        if (name.length < 2) {
-            alert("Alias must be at least 2 characters.");
-            return;
-        }
+// DOM Elements
+const loginModal = document.getElementById("login-modal");
+const usernameInput = document.getElementById("username-input");
+const serverModeSelect = document.getElementById("server-mode");
+const joinBtn = document.getElementById("join-btn");
+const myAvatar = document.getElementById("my-avatar");
+const myUsernameDisplay = document.getElementById("my-username-display");
+const connectionBadge = document.getElementById("connection-badge");
+const messageContainer = document.getElementById("message-container");
+const messageForm = document.getElementById("message-form");
+const messageInput = document.getElementById("message-input");
+const activeRoomName = document.getElementById("active-room-name");
+const emojiTrigger = document.getElementById("emoji-trigger");
+const clearChatBtn = document.getElementById("clear-chat-btn");
 
-        this.username = name.toUpperCase();
-        document.getElementById('my-user-badge').innerText = this.username;
-        
-        // Hide login, show chat room
-        document.getElementById('login-screen').classList.remove('active');
-        document.getElementById('chat-screen').classList.add('active');
+// Join Chat
+joinBtn.addEventListener("click", () => {
+  const rawName = usernameInput.value.trim();
+  username = rawName || "Explorer_" + Math.floor(1000 + Math.random() * 9000);
+  engineMode = serverModeSelect.value;
 
-        // Start the global connection
-        this.connectToGlobalServer();
-        
-        // Allow pressing 'Enter' to send messages
-        document.getElementById('msg-input').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') ChatEngine.sendMessage();
-        });
-    },
+  myUsernameDisplay.textContent = username;
+  myAvatar.textContent = username.charAt(0).toUpperCase();
+  loginModal.style.display = "none";
 
-    // --- 2. GLOBAL NETWORKING (MQTT) ---
-    connectToGlobalServer() {
-        let statusEl = document.getElementById('connection-status');
-        statusEl.innerText = "🟡 Connecting...";
+  if (engineMode === "python") {
+    initPythonServer();
+  } else {
+    initGlobalCloudRelay();
+  }
+});
 
-        // Connect to HiveMQ Public WebSocket Broker
-        // This acts as our "free server" hosted on the cloud
-        this.client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
+// Option A: Serverless Global Cloud Relay (Works immediately on GitHub Pages)
+function initGlobalCloudRelay() {
+  connectionBadge.textContent = "Connecting Global...";
+  // Public secure WebSocket broker for instant global rooms on GitHub Pages
+  mqttClient = mqtt.connect("wss://broker.emqx.io:8084/mqtt");
 
-        // Event: Successfully Connected
-        this.client.on('connect', () => {
-            statusEl.innerText = "🟢 GLOBAL LINK ACTIVE";
-            statusEl.classList.add('status-connected');
-            
-            // Subscribe to our secret chat room
-            this.client.subscribe(this.globalTopic);
+  mqttClient.on("connect", () => {
+    connectionBadge.textContent = "Global Live";
+    subscribeToCloudRoom(currentRoom);
+  });
 
-            // Announce to the world that we joined
-            this.publishSystemMessage(`${this.username} HAS JOINED THE SERVER.`);
-        });
-
-        // Event: Disconnected / Error
-        this.client.on('error', (err) => {
-            console.error("Connection Error:", err);
-            statusEl.innerText = "🔴 ERROR: LINK LOST";
-            statusEl.classList.remove('status-connected');
-        });
-
-        // Event: Received a Message from ANYONE in the world
-        this.client.on('message', (topic, messageBytes) => {
-            if (topic === this.globalTopic) {
-                // Unpack the JSON data sent over the network
-                const packet = JSON.parse(messageBytes.toString());
-                this.renderMessage(packet);
-            }
-        });
-    },
-
-    // --- 3. SENDING MESSAGES & COMMANDS ---
-    sendMessage() {
-        let inputEl = document.getElementById('msg-input');
-        let text = inputEl.value.trim();
-        if (text === "") return;
-
-        // Clear the input box immediately
-        inputEl.value = "";
-
-        // COMMAND CHECKER: Did the user type a game command?
-        if (text.startsWith('/')) {
-            this.handleCommand(text);
-            return;
-        }
-
-        // Standard Message Payload
-        const packet = {
-            type: "chat",
-            sender: this.username,
-            text: text,
-            timestamp: new Date().getTime()
-        };
-
-        // Broadcast to the world
-        this.client.publish(this.globalTopic, JSON.stringify(packet));
-    },
-
-    // Helper to send yellow "System" messages (like join alerts)
-    publishSystemMessage(textMsg) {
-        const packet = {
-            type: "system",
-            text: textMsg,
-            timestamp: new Date().getTime()
-        };
-        this.client.publish(this.globalTopic, JSON.stringify(packet));
-    },
-
-    // --- 4. THE CHAT GAME "FUNK" (COMMANDS) ---
-    handleCommand(cmdText) {
-        // Remove the slash and make lowercase
-        let command = cmdText.substring(1).toLowerCase();
-
-        if (command === "roll") {
-            // Roll a random number between 1 and 100
-            let roll = Math.floor(Math.random() * 100) + 1;
-            let resultText = `🎲 ${this.username} rolled the dice and got: ${roll}/100`;
-            
-            // Broadcast the result to everyone as a system message
-            this.publishSystemMessage(resultText);
-        } 
-        else {
-            // Local error message (Only you see this)
-            this.renderMessage({
-                type: "system",
-                text: `Unknown command: /${command}. Available: /roll`
-            });
-        }
-    },
-
-    // --- 5. UI RENDERING ---
-    renderMessage(packet) {
-        const chatBox = document.getElementById('chat-box');
-        
-        // Create the main wrapper div
-        const msgDiv = document.createElement('div');
-        msgDiv.classList.add('message');
-
-        // Logic for different message types
-        if (packet.type === "system") {
-            msgDiv.classList.add('system-msg');
-            msgDiv.innerHTML = `<span class="msg-text">${packet.text}</span>`;
-        } 
-        else if (packet.type === "chat") {
-            // Check if it's MY message or SOMEONE ELSE'S message
-            if (packet.sender === this.username) {
-                msgDiv.classList.add('my-msg');
-                msgDiv.innerHTML = `<span class="msg-text">${packet.text}</span>`;
-            } else {
-                msgDiv.classList.add('other-msg');
-                msgDiv.innerHTML = `
-                    <span class="msg-sender">${packet.sender}</span>
-                    <span class="msg-text">${packet.text}</span>
-                `;
-            }
-        }
-
-        // Append to DOM and auto-scroll to the bottom
-        chatBox.appendChild(msgDiv);
-        chatBox.scrollTop = chatBox.scrollHeight;
+  mqttClient.on("message", (topic, payload) => {
+    try {
+      const data = JSON.parse(payload.toString());
+      if (data.room === currentRoom) {
+        renderMessage(data);
+      }
+    } catch (err) {
+      console.error("Message parse error:", err);
     }
-};
+  });
+}
+
+function subscribeToCloudRoom(room) {
+  if (!mqttClient) return;
+  const topic = `smweb/global/v1/${room}`;
+  mqttClient.subscribe(topic, () => {
+    publishCloudMessage({
+      senderId: "system",
+      sender: "System",
+      text: `${username} joined #${room}`,
+      room: room,
+      time: formatTime(),
+      system: true
+    });
+  });
+}
+
+function publishCloudMessage(msgObj) {
+  if (!mqttClient) return;
+  const topic = `smweb/global/v1/${currentRoom}`;
+  mqttClient.publish(topic, JSON.stringify(msgObj));
+}
+
+// Option B: Python Flask-SocketIO Backend Server (app.py)
+function initPythonServer() {
+  connectionBadge.textContent = "Connecting Python...";
+  pySocket = io(PYTHON_SERVER_URL);
+
+  pySocket.on("connect", () => {
+    connectionBadge.textContent = "Python Server Live";
+    pySocket.emit("join_room", { username, room: currentRoom });
+  });
+
+  pySocket.on("room_history", (history) => {
+    messageContainer.innerHTML = "";
+    history.forEach((msg) => renderMessage(msg));
+  });
+
+  pySocket.on("new_message", (msg) => {
+    renderMessage(msg);
+  });
+
+  pySocket.on("connect_error", () => {
+    connectionBadge.textContent = "Python Offline -> Cloud Fallback";
+    engineMode = "cloud";
+    pySocket.disconnect();
+    initGlobalCloudRelay();
+  });
+}
+
+// Send Message
+messageForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = messageInput.value.trim();
+  if (!text) return;
+
+  const msgPayload = {
+    senderId: userId,
+    sender: username,
+    text: text,
+    room: currentRoom,
+    time: formatTime(),
+    system: false
+  };
+
+  if (engineMode === "python" && pySocket) {
+    pySocket.emit("send_message", msgPayload);
+  } else {
+    publishCloudMessage(msgPayload);
+  }
+
+  messageInput.value = "";
+});
+
+// Switch Channels
+document.querySelectorAll(".chat-item").forEach((item) => {
+  item.addEventListener("click", () => {
+    document.querySelectorAll(".chat-item").forEach((el) => el.classList.remove("active"));
+    item.classList.add("active");
+
+    const newRoom = item.getAttribute("data-room");
+    const roomTitle = item.querySelector(".chat-title").textContent;
+    if (newRoom === currentRoom) return;
+
+    currentRoom = newRoom;
+    activeRoomName.textContent = roomTitle;
+    messageContainer.innerHTML = "";
+
+    if (engineMode === "python" && pySocket) {
+      pySocket.emit("join_room", { username, room: currentRoom });
+    } else if (mqttClient) {
+      subscribeToCloudRoom(currentRoom);
+    }
+  });
+});
+
+// Render Message Bubble
+function renderMessage(msg) {
+  const div = document.createElement("div");
+
+  if (msg.system) {
+    div.className = "message-bubble system";
+    div.textContent = `${msg.text} • ${msg.time}`;
+  } else {
+    const isMine = msg.senderId === userId;
+    div.className = `message-bubble ${isMine ? "outgoing" : "incoming"}`;
+    div.innerHTML = `
+      ${!isMine ? `<div class="bubble-sender">${escapeHTML(msg.sender)}</div>` : ""}
+      <div>${escapeHTML(msg.text)}</div>
+      <div class="bubble-time">${msg.time}</div>
+    `;
+  }
+
+  messageContainer.appendChild(div);
+  messageContainer.scrollTop = messageContainer.scrollHeight;
+}
+
+// Quick Emoji Button
+emojiTrigger.addEventListener("click", () => {
+  const emojis = ["🔥", "🚀", "😂", "❤️", "👍", "🎉", "💻"];
+  const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+  messageInput.value += randomEmoji;
+  messageInput.focus();
+});
+
+// Clear Screen
+clearChatBtn.addEventListener("click", () => {
+  messageContainer.innerHTML = "";
+});
+
+function formatTime() {
+  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function escapeHTML(str) {
+  return String(str).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[char]));
+}
