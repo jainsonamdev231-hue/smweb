@@ -6,10 +6,8 @@ from flask_socketio import SocketIO, join_room, emit
 app = Flask(__name__, static_folder=".")
 app.config["SECRET_KEY"] = "smweb-global-secret-key"
 
-# Allow connections from GitHub Pages and any global domain
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# In-memory storage for recent messages per global channel
 ROOM_HISTORY = {
     "global-lounge": [],
     "developers-hub": [],
@@ -31,11 +29,9 @@ def handle_join(data):
     room = data.get("room", "global-lounge")
     join_room(room)
 
-    # Send existing room history to the newly joined user
     history = ROOM_HISTORY.get(room, [])
     emit("room_history", history)
 
-    # Announce user arrival to the room
     join_announcement = {
         "senderId": "system",
         "sender": "System",
@@ -60,7 +56,6 @@ def handle_message(data):
 
     if room in ROOM_HISTORY:
         ROOM_HISTORY[room].append(message_obj)
-        # Keep only the latest 100 messages in RAM
         if len(ROOM_HISTORY[room]) > 100:
             ROOM_HISTORY[room].pop(0)
 
