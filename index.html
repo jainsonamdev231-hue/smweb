@@ -1,113 +1,83 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>smweb — Global Web Messenger</title>
-  <!-- FontAwesome Icons -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-  <!-- Socket.IO Client for Python Backend -->
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-  <!-- MQTT Global Cloud Relay -->
-  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-  <!-- Custom Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=3" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=resizes-content">
+  <title>Chat App</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <!-- Login Screen -->
-  <div id="login-modal" class="modal-overlay">
-    <div class="login-box">
-      <div class="logo-circle"><i class="fa-brands fa-whatsapp"></i></div>
-      <h1>smweb</h1>
-      <p>Global Real-Time Web Messenger</p>
-      <input type="text" id="username-input" placeholder="Enter your global username..." maxlength="22" autocomplete="off" />
-      <select id="server-mode">
-        <option value="cloud">Global Serverless Cloud (Works on GitHub Pages)</option>
-        <option value="python">Python Backend Server (app.py / Render)</option>
-      </select>
-      <button id="join-btn">Launch smweb</button>
+  <!-- Login / Register Screen -->
+  <div id="auth-screen" class="auth-overlay">
+    <div class="auth-box">
+      <h2 id="auth-title">Login</h2>
+      <p class="auth-subtitle">Unique Username & Password System</p>
+      
+      <div id="auth-error" class="error-msg"></div>
+      
+      <input type="text" id="username-input" placeholder="Enter unique @username" autocomplete="off">
+      <input type="password" id="password-input" placeholder="Enter password">
+      
+      <button id="auth-submit-btn">Login</button>
+      
+      <p class="auth-switch">
+        <span id="auth-switch-text">Need an account?</span>
+        <a href="#" id="auth-toggle-link">Create Unique Username</a>
+      </p>
     </div>
   </div>
 
-  <!-- Main WhatsApp Web Layout -->
-  <div class="whatsapp-wrapper">
-    <!-- Left Sidebar -->
-    <aside class="sidebar">
-      <header class="sidebar-header">
-        <div class="user-profile">
-          <div class="avatar" id="my-avatar">S</div>
-          <span id="my-username-display">smweb User</span>
-        </div>
-        <div class="status-pill" id="connection-badge">Connecting...</div>
-      </header>
-
-      <div class="search-box">
-        <i class="fa-solid fa-magnifying-glass"></i>
-        <input type="text" id="room-search" placeholder="Search global channels..." />
+  <!-- Main Messaging Application -->
+  <div id="app-container" class="app-container hidden">
+    
+    <!-- Top Header with Triple Line (Hamburger) Button -->
+    <header class="top-header">
+      <button id="menu-toggle-btn" class="menu-btn" aria-label="Toggle Contacts">☰</button>
+      <div class="header-info">
+        <span id="active-contact-name">Select a Contact</span>
+        <small id="logged-in-user"></small>
       </div>
+      <button id="logout-btn" class="logout-btn">Logout</button>
+    </header>
 
-      <div class="section-heading">GLOBAL CHANNELS</div>
-      <ul class="chat-list" id="channel-list">
-        <li class="chat-item active" data-room="global-lounge">
-          <div class="avatar channel-icon"><i class="fa-solid fa-earth-americas"></i></div>
-          <div class="chat-info">
-            <div class="chat-title">Global Lounge</div>
-            <div class="chat-preview">Main worldwide public chat</div>
-          </div>
-        </li>
-        <li class="chat-item" data-room="developers-hub">
-          <div class="avatar channel-icon"><i class="fa-solid fa-code"></i></div>
-          <div class="chat-info">
-            <div class="chat-title">Developers Hub</div>
-            <div class="chat-preview">Python, JS, HTML & CSS talk</div>
-          </div>
-        </li>
-        <li class="chat-item" data-room="gaming-arena">
-          <div class="avatar channel-icon"><i class="fa-solid fa-gamepad"></i></div>
-          <div class="chat-info">
-            <div class="chat-title">Gaming Arena</div>
-            <div class="chat-preview">Global multiplayer squad</div>
-          </div>
-        </li>
-        <li class="chat-item" data-room="music-chill">
-          <div class="avatar channel-icon"><i class="fa-solid fa-headphones"></i></div>
-          <div class="chat-info">
-            <div class="chat-title">Music & Chill</div>
-            <div class="chat-preview">Late night global hangout</div>
-          </div>
-        </li>
-      </ul>
-    </aside>
+    <div class="main-body">
+      <!-- Backdrop for mobile menu -->
+      <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
 
-    <!-- Right Chat Panel -->
-    <main class="chat-panel">
-      <header class="chat-header">
-        <div class="chat-header-left">
-          <div class="avatar channel-icon"><i class="fa-solid fa-comments"></i></div>
-          <div>
-            <h2 id="active-room-name">Global Lounge</h2>
-            <p id="room-subtitle">Real-time global channel</p>
-          </div>
+      <!-- Slide-out Contact Drawer -->
+      <aside id="sidebar" class="sidebar">
+        <div class="sidebar-header">
+          <h3>Contacts</h3>
         </div>
-        <div class="chat-header-actions">
-          <button id="clear-chat-btn" title="Clear local screen"><i class="fa-solid fa-trash-can"></i></button>
+        
+        <!-- Add New Contact Form -->
+        <div class="add-contact-box">
+          <input type="text" id="new-contact-input" placeholder="Add @username...">
+          <button id="add-contact-btn">+</button>
         </div>
-      </header>
 
-      <!-- Message Feed -->
-      <section id="message-container" class="message-container"></section>
+        <ul id="contact-list" class="contact-list">
+          <!-- Contacts injected by JavaScript -->
+        </ul>
+      </aside>
 
-      <!-- Message Input Bar -->
-      <form id="message-form" class="chat-footer">
-        <button type="button" class="emoji-btn" id="emoji-trigger">😊</button>
-        <input type="text" id="message-input" placeholder="Type a message to the world..." autocomplete="off" />
-        <button type="submit" class="send-btn"><i class="fa-solid fa-paper-plane"></i></button>
-      </form>
-    </main>
+      <!-- Chat Area -->
+      <main class="chat-area">
+        <div id="messages-list" class="messages-list">
+          <!-- Messages injected by JavaScript -->
+        </div>
+
+        <!-- Mobile Keyboard-Safe Input Bar -->
+        <form id="message-form" class="input-bar">
+          <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off">
+          <button type="submit" id="send-btn">Send</button>
+        </form>
+      </main>
+    </div>
+
   </div>
 
-  <!-- External JavaScript -->
   <script src="script.js"></script>
 </body>
 </html>
