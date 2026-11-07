@@ -1,11 +1,9 @@
-// --- Storage Keys ---
-const USERS_KEY = 'chat_app_registered_users';
-const MESSAGES_KEY = 'chat_app_messages';
-
 // --- App State ---
 let isRegisterMode = false;
 let currentUser = null;
-let activeContact = null;
+let activeContact = 'global';
+let userContacts = [];
+let pollInterval = null;
 
 // --- DOM Elements ---
 const authScreen = document.getElementById('auth-screen');
@@ -32,40 +30,11 @@ const messagesListEl = document.getElementById('messages-list');
 const messageForm = document.getElementById('message-form');
 const messageInput = document.getElementById('message-input');
 
-// --- Helper Functions for Database (localStorage) ---
-function getUsers() {
-  const data = localStorage.getItem(USERS_KEY);
-  if (!data) {
-    // Seed default contacts so you have someone to message immediately
-    const initial = {
-      'support': { password: '123', contacts: [] },
-      'alex': { password: '123', contacts: [] },
-      'priya': { password: '123', contacts: [] }
-    };
-    localStorage.setItem(USERS_KEY, JSON.stringify(initial));
-    return initial;
-  }
-  return JSON.parse(data);
-}
-
-function saveUsers(users) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-
-function getMessages() {
-  const data = localStorage.getItem(MESSAGES_KEY);
-  return data ? JSON.parse(data) : [];
-}
-
-function saveMessages(msgs) {
-  localStorage.setItem(MESSAGES_KEY, JSON.stringify(msgs));
-}
-
 function normalizeUsername(name) {
   return name.trim().toLowerCase().replace(/^@/, '');
 }
 
-// --- Unique Username & Password Authentication ---
+// --- Switch Between Login and Register ---
 authToggleLink.addEventListener('click', (e) => {
   e.preventDefault();
   isRegisterMode = !isRegisterMode;
@@ -76,51 +45,51 @@ authToggleLink.addEventListener('click', (e) => {
     authSwitchText.textContent = 'Already have a username?';
     authToggleLink.textContent = 'Login here';
   } else {
-    authTitle.textContent = 'Login';
+    authTitle.textContent = 'SM-Bef Login';
     authSubmitBtn.textContent = 'Login';
     authSwitchText.textContent = 'Need an account?';
     authToggleLink.textContent = 'Create Unique Username';
   }
 });
 
-authSubmitBtn.addEventListener('click', () => {
+// --- Server Authentication (Works Across All Devices) ---
+authSubmitBtn.addEventListener('click', async () => {
   const rawUser = normalizeUsername(usernameInput.value);
-  const pass = passwordInput.value;
+  const pass = passwordInput.value.trim();
 
   if (!rawUser || !pass) {
     authError.textContent = 'Please enter both username and password.';
     return;
   }
 
-  const users = getUsers();
+  const endpoint = isRegisterMode ? '/api/register' : '/api/login';
+  authSubmitBtn.disabled = true;
 
-  if (isRegisterMode) {
-    // Check if username is already taken
-    if (users[rawUser]) {
-      authError.textContent = `@${rawUser} is already taken! Choose another unique username.`;
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: rawUser, password: pass })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      authError.textContent = data.error || 'Authentication failed.';
+      authSubmitBtn.disabled = false;
       return;
     }
-    users[rawUser] = {
-      password: pass,
-      contacts: ['support', 'alex', 'priya'].filter(u => u !== rawUser)
-    };
-    saveUsers(users);
-    loginSuccess(rawUser);
-  } else {
-    if (!users[rawUser]) {
-      authError.textContent = 'Username not found. Please register first.';
-      return;
-    }
-    if (users[rawUser].password !== pass) {
-      authError.textContent = 'Incorrect password.';
-      return;
-    }
-    loginSuccess(rawUser);
+
+    authSubmitBtn.disabled = false;
+    loginSuccess(data.username, data.contacts);
+  } catch (err) {
+    authError.textContent = 'Cannot reach Python server. Make sure app.py is running.';
+    authSubmitBtn.disabled = false;
   }
 });
 
-function loginSuccess(username) {
+function loginSuccess(username, contacts) {
   currentUser = username;
+  userContacts = contacts || ['global'];
   authError.textContent = '';
   usernameInput.value = '';
   passwordInput.value = '';
@@ -129,18 +98,17 @@ function loginSuccess(username) {
   appContainer.classList.remove('hidden');
   loggedInUserEl.textContent = `Logged in as @${currentUser}`;
 
-  const users = getUsers();
-  const userContacts = users[currentUser].contacts || [];
   renderContacts();
+  selectContact('global');
 
-  if (userContacts.length > 0) {
-    selectContact(userContacts[0]);
-  }
+  // Auto-refresh messages every 2 seconds across devices
+  if (pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(fetchMessagesFromServer, 2000);
 }
 
 logoutBtn.addEventListener('click', () => {
   currentUser = null;
-  activeContact = null;
+  if (pollInterval) clearInterval(pollInterval);
   appContainer.classList.add('hidden');
   authScreen.classList.remove('hidden');
 });
@@ -169,7 +137,6 @@ menuToggleBtn.addEventListener('click', () => {
       openMenu();
     }
   } else {
-    // Desktop toggle
     sidebar.classList.toggle('closed');
   }
 });
@@ -178,17 +145,14 @@ sidebarBackdrop.addEventListener('click', closeMenu);
 
 // --- Contacts System ---
 function renderContacts() {
-  const users = getUsers();
-  const contacts = users[currentUser]?.contacts || [];
   contactListEl.innerHTML = '';
 
-  contacts.forEach(contactUsername => {
+  userContacts.forEach(contactUsername => {
     const li = document.createElement('li');
     li.className = 'contact-item' + (contactUsername === activeContact ? ' active' : '');
-    li.textContent = `@${contactUsername}`;
+    li.textContent = contactUsername === 'global' ? '🌐 SM-Bef Global Chat' : `@${contactUsername}`;
     li.addEventListener('click', () => {
       selectContact(contactUsername);
-      // Automatically slide menu aside and return icon to triple lines on selection
       if (window.innerWidth <= 768) {
         closeMenu();
       }
@@ -199,78 +163,103 @@ function renderContacts() {
 
 function selectContact(contactUsername) {
   activeContact = contactUsername;
-  activeContactNameEl.textContent = `@${contactUsername}`;
+  activeContactNameEl.textContent = contactUsername === 'global' ? '🌐 SM-Bef Global Chat' : `@${contactUsername}`;
   renderContacts();
-  renderMessages();
+  fetchMessagesFromServer(true);
 }
 
-addContactBtn.addEventListener('click', () => {
+addContactBtn.addEventListener('click', async () => {
   const newContact = normalizeUsername(newContactInput.value);
   if (!newContact || newContact === currentUser) return;
 
-  const users = getUsers();
-  // Register placeholder if contact doesn't exist yet so you can message them
-  if (!users[newContact]) {
-    users[newContact] = { password: '123', contacts: [currentUser] };
-  }
+  try {
+    const res = await fetch('/api/contacts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: currentUser, contact: newContact })
+    });
+    const data = await res.json();
 
-  if (!users[currentUser].contacts.includes(newContact)) {
-    users[currentUser].contacts.push(newContact);
-    saveUsers(users);
-  }
+    if (!res.ok) {
+      alert(data.error || 'Could not add contact.');
+      return;
+    }
 
-  newContactInput.value = '';
-  selectContact(newContact);
-  if (window.innerWidth <= 768) {
-    closeMenu();
+    userContacts = data.contacts;
+    newContactInput.value = '';
+    selectContact(newContact);
+    if (window.innerWidth <= 768) {
+      closeMenu();
+    }
+  } catch (err) {
+    alert('Error connecting to server.');
   }
 });
 
-// --- Messaging Logic ---
-function renderMessages() {
-  messagesListEl.innerHTML = '';
-  if (!activeContact) return;
+// --- Server Messaging Logic ---
+async function fetchMessagesFromServer(forceScroll = false) {
+  if (!currentUser || !activeContact) return;
 
-  const allMessages = getMessages();
-  const chatMessages = allMessages.filter(
-    m => (m.from === currentUser && m.to === activeContact) ||
-         (m.from === activeContact && m.to === currentUser)
-  );
+  try {
+    const res = await fetch(`/api/messages?username=${encodeURIComponent(currentUser)}&contact=${encodeURIComponent(activeContact)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (data.contacts && JSON.stringify(data.contacts) !== JSON.stringify(userContacts)) {
+      userContacts = data.contacts;
+      renderContacts();
+    }
+
+    renderMessages(data.messages || [], forceScroll);
+  } catch (err) {
+    // Silent catch during background polling
+  }
+}
+
+function renderMessages(chatMessages, forceScroll = false) {
+  const isNearBottom = messagesListEl.scrollHeight - messagesListEl.scrollTop - messagesListEl.clientHeight < 80;
+  messagesListEl.innerHTML = '';
 
   chatMessages.forEach(msg => {
     const div = document.createElement('div');
     const isSent = msg.from === currentUser;
     div.className = `msg-bubble ${isSent ? 'msg-sent' : 'msg-received'}`;
+    const senderLabel = (activeContact === 'global' && !isSent) ? `<strong style="display:block;font-size:12px;color:#00a884;">@${msg.from}</strong>` : '';
     div.innerHTML = `
+      ${senderLabel}
       <span>${msg.text}</span>
       <span class="msg-meta">${msg.time}</span>
     `;
     messagesListEl.appendChild(div);
   });
 
-  messagesListEl.scrollTop = messagesListEl.scrollHeight;
+  if (forceScroll || isNearBottom) {
+    messagesListEl.scrollTop = messagesListEl.scrollHeight;
+  }
 }
 
-messageForm.addEventListener('submit', (e) => {
+messageForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const text = messageInput.value.trim();
-  if (!text || !activeContact) return;
+  if (!text || !activeContact || !currentUser) return;
 
-  const allMessages = getMessages();
-  const now = new Date();
-  const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-  allMessages.push({
-    from: currentUser,
-    to: activeContact,
-    text: text,
-    time: timeString
-  });
-
-  saveMessages(allMessages);
   messageInput.value = '';
-  renderMessages();
   messageInput.focus();
+
+  try {
+    await fetch('/api/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: currentUser,
+        to: activeContact,
+        text: text
+      })
+    });
+    fetchMessagesFromServer(true);
+  } catch (err) {
+    alert('Failed to send message.');
+  }
 });
 
 // --- Mobile Keyboard Viewport Fix ---
