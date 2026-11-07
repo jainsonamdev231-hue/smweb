@@ -1,195 +1,285 @@
-const PYTHON_SERVER_URL = "http://localhost:5000";
+// --- Storage Keys ---
+const USERS_KEY = 'chat_app_registered_users';
+const MESSAGES_KEY = 'chat_app_messages';
 
-let username = "";
-let userId = "user_" + Math.random().toString(36).substring(2, 9);
-let currentRoom = "global-lounge";
-let engineMode = "cloud";
-let mqttClient = null;
-let pySocket = null;
+// --- App State ---
+let isRegisterMode = false;
+let currentUser = null;
+let activeContact = null;
 
-const loginModal = document.getElementById("login-modal");
-const usernameInput = document.getElementById("username-input");
-const serverModeSelect = document.getElementById("server-mode");
-const joinBtn = document.getElementById("join-btn");
-const myAvatar = document.getElementById("my-avatar");
-const myUsernameDisplay = document.getElementById("my-username-display");
-const connectionBadge = document.getElementById("connection-badge");
-const messageContainer = document.getElementById("message-container");
-const messageForm = document.getElementById("message-form");
-const messageInput = document.getElementById("message-input");
-const activeRoomName = document.getElementById("active-room-name");
-const emojiTrigger = document.getElementById("emoji-trigger");
-const clearChatBtn = document.getElementById("clear-chat-btn");
+// --- DOM Elements ---
+const authScreen = document.getElementById('auth-screen');
+const appContainer = document.getElementById('app-container');
+const authTitle = document.getElementById('auth-title');
+const authError = document.getElementById('auth-error');
+const usernameInput = document.getElementById('username-input');
+const passwordInput = document.getElementById('password-input');
+const authSubmitBtn = document.getElementById('auth-submit-btn');
+const authToggleLink = document.getElementById('auth-toggle-link');
+const authSwitchText = document.getElementById('auth-switch-text');
 
-joinBtn.addEventListener("click", () => {
-  const rawName = usernameInput.value.trim();
-  username = rawName || "Explorer_" + Math.floor(1000 + Math.random() * 9000);
-  engineMode = serverModeSelect.value;
+const menuToggleBtn = document.getElementById('menu-toggle-btn');
+const sidebar = document.getElementById('sidebar');
+const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+const contactListEl = document.getElementById('contact-list');
+const newContactInput = document.getElementById('new-contact-input');
+const addContactBtn = document.getElementById('add-contact-btn');
 
-  myUsernameDisplay.textContent = username;
-  myAvatar.textContent = username.charAt(0).toUpperCase();
-  loginModal.style.display = "none";
+const activeContactNameEl = document.getElementById('active-contact-name');
+const loggedInUserEl = document.getElementById('logged-in-user');
+const logoutBtn = document.getElementById('logout-btn');
+const messagesListEl = document.getElementById('messages-list');
+const messageForm = document.getElementById('message-form');
+const messageInput = document.getElementById('message-input');
 
-  if (engineMode === "python") {
-    initPythonServer();
+// --- Helper Functions for Database (localStorage) ---
+function getUsers() {
+  const data = localStorage.getItem(USERS_KEY);
+  if (!data) {
+    // Seed default contacts so you have someone to message immediately
+    const initial = {
+      'support': { password: '123', contacts: [] },
+      'alex': { password: '123', contacts: [] },
+      'priya': { password: '123', contacts: [] }
+    };
+    localStorage.setItem(USERS_KEY, JSON.stringify(initial));
+    return initial;
+  }
+  return JSON.parse(data);
+}
+
+function saveUsers(users) {
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+}
+
+function getMessages() {
+  const data = localStorage.getItem(MESSAGES_KEY);
+  return data ? JSON.parse(data) : [];
+}
+
+function saveMessages(msgs) {
+  localStorage.setItem(MESSAGES_KEY, JSON.stringify(msgs));
+}
+
+function normalizeUsername(name) {
+  return name.trim().toLowerCase().replace(/^@/, '');
+}
+
+// --- Unique Username & Password Authentication ---
+authToggleLink.addEventListener('click', (e) => {
+  e.preventDefault();
+  isRegisterMode = !isRegisterMode;
+  authError.textContent = '';
+  if (isRegisterMode) {
+    authTitle.textContent = 'Create Unique Username';
+    authSubmitBtn.textContent = 'Register';
+    authSwitchText.textContent = 'Already have a username?';
+    authToggleLink.textContent = 'Login here';
   } else {
-    initGlobalCloudRelay();
+    authTitle.textContent = 'Login';
+    authSubmitBtn.textContent = 'Login';
+    authSwitchText.textContent = 'Need an account?';
+    authToggleLink.textContent = 'Create Unique Username';
   }
 });
 
-function initGlobalCloudRelay() {
-  connectionBadge.textContent = "Connecting Global...";
-  mqttClient = mqtt.connect("wss://broker.emqx.io:8084/mqtt");
+authSubmitBtn.addEventListener('click', () => {
+  const rawUser = normalizeUsername(usernameInput.value);
+  const pass = passwordInput.value;
 
-  mqttClient.on("connect", () => {
-    connectionBadge.textContent = "Global Live";
-    subscribeToCloudRoom(currentRoom);
-  });
+  if (!rawUser || !pass) {
+    authError.textContent = 'Please enter both username and password.';
+    return;
+  }
 
-  mqttClient.on("message", (topic, payload) => {
-    try {
-      const data = JSON.parse(payload.toString());
-      if (data.room === currentRoom) {
-        renderMessage(data);
-      }
-    } catch (err) {
-      console.error("Message parse error:", err);
+  const users = getUsers();
+
+  if (isRegisterMode) {
+    // Check if username is already taken
+    if (users[rawUser]) {
+      authError.textContent = `@${rawUser} is already taken! Choose another unique username.`;
+      return;
     }
-  });
+    users[rawUser] = {
+      password: pass,
+      contacts: ['support', 'alex', 'priya'].filter(u => u !== rawUser)
+    };
+    saveUsers(users);
+    loginSuccess(rawUser);
+  } else {
+    if (!users[rawUser]) {
+      authError.textContent = 'Username not found. Please register first.';
+      return;
+    }
+    if (users[rawUser].password !== pass) {
+      authError.textContent = 'Incorrect password.';
+      return;
+    }
+    loginSuccess(rawUser);
+  }
+});
+
+function loginSuccess(username) {
+  currentUser = username;
+  authError.textContent = '';
+  usernameInput.value = '';
+  passwordInput.value = '';
+
+  authScreen.classList.add('hidden');
+  appContainer.classList.remove('hidden');
+  loggedInUserEl.textContent = `Logged in as @${currentUser}`;
+
+  const users = getUsers();
+  const userContacts = users[currentUser].contacts || [];
+  renderContacts();
+
+  if (userContacts.length > 0) {
+    selectContact(userContacts[0]);
+  }
 }
 
-function subscribeToCloudRoom(room) {
-  if (!mqttClient) return;
-  const topic = `smweb/global/v1/${room}`;
-  mqttClient.subscribe(topic, () => {
-    publishCloudMessage({
-      senderId: "system",
-      sender: "System",
-      text: `${username} joined #${room}`,
-      room: room,
-      time: formatTime(),
-      system: true
+logoutBtn.addEventListener('click', () => {
+  currentUser = null;
+  activeContact = null;
+  appContainer.classList.add('hidden');
+  authScreen.classList.remove('hidden');
+});
+
+// --- Triple Line (Hamburger) Menu Logic ---
+function openMenu() {
+  sidebar.classList.add('open');
+  sidebar.classList.remove('closed');
+  sidebarBackdrop.classList.add('show');
+  menuToggleBtn.textContent = '✕';
+}
+
+function closeMenu() {
+  sidebar.classList.remove('open');
+  sidebar.classList.add('closed');
+  sidebarBackdrop.classList.remove('show');
+  menuToggleBtn.textContent = '☰';
+}
+
+menuToggleBtn.addEventListener('click', () => {
+  const isMobile = window.innerWidth <= 768;
+  if (isMobile) {
+    if (sidebar.classList.contains('open')) {
+      closeMenu();
+    } else {
+      openMenu();
+    }
+  } else {
+    // Desktop toggle
+    sidebar.classList.toggle('closed');
+  }
+});
+
+sidebarBackdrop.addEventListener('click', closeMenu);
+
+// --- Contacts System ---
+function renderContacts() {
+  const users = getUsers();
+  const contacts = users[currentUser]?.contacts || [];
+  contactListEl.innerHTML = '';
+
+  contacts.forEach(contactUsername => {
+    const li = document.createElement('li');
+    li.className = 'contact-item' + (contactUsername === activeContact ? ' active' : '');
+    li.textContent = `@${contactUsername}`;
+    li.addEventListener('click', () => {
+      selectContact(contactUsername);
+      // Automatically slide menu aside and return icon to triple lines on selection
+      if (window.innerWidth <= 768) {
+        closeMenu();
+      }
     });
+    contactListEl.appendChild(li);
   });
 }
 
-function publishCloudMessage(msgObj) {
-  if (!mqttClient) return;
-  const topic = `smweb/global/v1/${currentRoom}`;
-  mqttClient.publish(topic, JSON.stringify(msgObj));
+function selectContact(contactUsername) {
+  activeContact = contactUsername;
+  activeContactNameEl.textContent = `@${contactUsername}`;
+  renderContacts();
+  renderMessages();
 }
 
-function initPythonServer() {
-  connectionBadge.textContent = "Connecting Python...";
-  pySocket = io(PYTHON_SERVER_URL);
+addContactBtn.addEventListener('click', () => {
+  const newContact = normalizeUsername(newContactInput.value);
+  if (!newContact || newContact === currentUser) return;
 
-  pySocket.on("connect", () => {
-    connectionBadge.textContent = "Python Server Live";
-    pySocket.emit("join_room", { username, room: currentRoom });
+  const users = getUsers();
+  // Register placeholder if contact doesn't exist yet so you can message them
+  if (!users[newContact]) {
+    users[newContact] = { password: '123', contacts: [currentUser] };
+  }
+
+  if (!users[currentUser].contacts.includes(newContact)) {
+    users[currentUser].contacts.push(newContact);
+    saveUsers(users);
+  }
+
+  newContactInput.value = '';
+  selectContact(newContact);
+  if (window.innerWidth <= 768) {
+    closeMenu();
+  }
+});
+
+// --- Messaging Logic ---
+function renderMessages() {
+  messagesListEl.innerHTML = '';
+  if (!activeContact) return;
+
+  const allMessages = getMessages();
+  const chatMessages = allMessages.filter(
+    m => (m.from === currentUser && m.to === activeContact) ||
+         (m.from === activeContact && m.to === currentUser)
+  );
+
+  chatMessages.forEach(msg => {
+    const div = document.createElement('div');
+    const isSent = msg.from === currentUser;
+    div.className = `msg-bubble ${isSent ? 'msg-sent' : 'msg-received'}`;
+    div.innerHTML = `
+      <span>${msg.text}</span>
+      <span class="msg-meta">${msg.time}</span>
+    `;
+    messagesListEl.appendChild(div);
   });
 
-  pySocket.on("room_history", (history) => {
-    messageContainer.innerHTML = "";
-    history.forEach((msg) => renderMessage(msg));
-  });
-
-  pySocket.on("new_message", (msg) => {
-    renderMessage(msg);
-  });
-
-  pySocket.on("connect_error", () => {
-    connectionBadge.textContent = "Python Offline -> Cloud Fallback";
-    engineMode = "cloud";
-    pySocket.disconnect();
-    initGlobalCloudRelay();
-  });
+  messagesListEl.scrollTop = messagesListEl.scrollHeight;
 }
 
-messageForm.addEventListener("submit", (e) => {
+messageForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const text = messageInput.value.trim();
-  if (!text) return;
+  if (!text || !activeContact) return;
 
-  const msgPayload = {
-    senderId: userId,
-    sender: username,
+  const allMessages = getMessages();
+  const now = new Date();
+  const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  allMessages.push({
+    from: currentUser,
+    to: activeContact,
     text: text,
-    room: currentRoom,
-    time: formatTime(),
-    system: false
-  };
-
-  if (engineMode === "python" && pySocket) {
-    pySocket.emit("send_message", msgPayload);
-  } else {
-    publishCloudMessage(msgPayload);
-  }
-
-  messageInput.value = "";
-});
-
-document.querySelectorAll(".chat-item").forEach((item) => {
-  item.addEventListener("click", () => {
-    document.querySelectorAll(".chat-item").forEach((el) => el.classList.remove("active"));
-    item.classList.add("active");
-
-    const newRoom = item.getAttribute("data-room");
-    const roomTitle = item.querySelector(".chat-title").textContent;
-    if (newRoom === currentRoom) return;
-
-    currentRoom = newRoom;
-    activeRoomName.textContent = roomTitle;
-    messageContainer.innerHTML = "";
-
-    if (engineMode === "python" && pySocket) {
-      pySocket.emit("join_room", { username, room: currentRoom });
-    } else if (mqttClient) {
-      subscribeToCloudRoom(currentRoom);
-    }
+    time: timeString
   });
-});
 
-function renderMessage(msg) {
-  const div = document.createElement("div");
-
-  if (msg.system) {
-    div.className = "message-bubble system";
-    div.textContent = `${msg.text} • ${msg.time}`;
-  } else {
-    const isMine = msg.senderId === userId;
-    div.className = `message-bubble ${isMine ? "outgoing" : "incoming"}`;
-    div.innerHTML = `
-      ${!isMine ? `<div class="bubble-sender">${escapeHTML(msg.sender)}</div>` : ""}
-      <div>${escapeHTML(msg.text)}</div>
-      <div class="bubble-time">${msg.time}</div>
-    `;
-  }
-
-  messageContainer.appendChild(div);
-  messageContainer.scrollTop = messageContainer.scrollHeight;
-}
-
-emojiTrigger.addEventListener("click", () => {
-  const emojis = ["🔥", "🚀", "😂", "❤️", "👍", "🎉", "💻"];
-  const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
-  messageInput.value += randomEmoji;
+  saveMessages(allMessages);
+  messageInput.value = '';
+  renderMessages();
   messageInput.focus();
 });
 
-clearChatBtn.addEventListener("click", () => {
-  messageContainer.innerHTML = "";
-});
-
-function formatTime() {
-  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function escapeHTML(str) {
-  return String(str).replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  }[char]));
+// --- Mobile Keyboard Viewport Fix ---
+if (window.visualViewport) {
+  const adjustViewport = () => {
+    appContainer.style.height = `${window.visualViewport.height}px`;
+    authScreen.style.height = `${window.visualViewport.height}px`;
+    messagesListEl.scrollTop = messagesListEl.scrollHeight;
+  };
+  window.visualViewport.addEventListener('resize', adjustViewport);
+  window.visualViewport.addEventListener('scroll', adjustViewport);
 }
