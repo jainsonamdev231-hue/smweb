@@ -46,20 +46,20 @@ html, body {
 .auth-subtitle {
   font-size: 13px;
   color: #667781;
-  margin-bottom: 4px;
 }
 
 .error-msg {
   color: #d93025;
   font-size: 13px;
   min-height: 18px;
+  font-weight: 500;
 }
 
 .auth-box input {
   padding: 12px;
   border: 1px solid #ccd0d5;
   border-radius: 8px;
-  font-size: 16px; /* 16px prevents mobile auto-zoom */
+  font-size: 16px;
 }
 
 .auth-box button {
@@ -120,10 +120,6 @@ html, body {
   border-radius: 6px;
 }
 
-.menu-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
 .header-info {
   flex: 1;
   display: flex;
@@ -150,7 +146,7 @@ html, body {
   cursor: pointer;
 }
 
-/* --- Main Body & Sidebar Drawer --- */
+/* --- Sidebar Drawer --- */
 .main-body {
   flex: 1;
   display: flex;
@@ -168,7 +164,6 @@ html, body {
   z-index: 25;
 }
 
-/* Collapsed state for desktop when clicking triple lines */
 .sidebar.closed {
   margin-left: -280px;
 }
@@ -181,9 +176,8 @@ html, body {
 
 .add-contact-box {
   display: flex;
-  padding: 10px;
+  padding: 10px 10px 4px 10px;
   gap: 6px;
-  border-bottom: 1px solid #e9edef;
 }
 
 .add-contact-box input {
@@ -202,6 +196,14 @@ html, body {
   border-radius: 6px;
   font-size: 18px;
   cursor: pointer;
+}
+
+.contact-error {
+  color: #d93025;
+  font-size: 12px;
+  padding: 0 12px 8px 12px;
+  border-bottom: 1px solid #e9edef;
+  min-height: 20px;
 }
 
 .contact-list {
@@ -253,6 +255,7 @@ html, body {
   font-size: 15px;
   line-height: 1.4;
   word-wrap: break-word;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 
 .msg-sent {
@@ -265,6 +268,14 @@ html, body {
   align-self: flex-start;
   background: #ffffff;
   color: #111b21;
+}
+
+.msg-sender {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #00a884;
+  margin-bottom: 2px;
 }
 
 .msg-meta {
@@ -290,7 +301,7 @@ html, body {
   padding: 12px 14px;
   border: none;
   border-radius: 20px;
-  font-size: 16px; /* Prevents iOS/Android keyboard zoom bug */
+  font-size: 16px;
   outline: none;
 }
 
@@ -305,7 +316,7 @@ html, body {
   cursor: pointer;
 }
 
-/* --- Mobile & Tablet Drawer Behavior --- */
+/* --- Mobile & Tablet Drawer --- */
 .sidebar-backdrop {
   display: none;
 }
