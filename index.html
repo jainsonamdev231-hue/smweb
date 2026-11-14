@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=resizes-content">
-  <title>Chat App</title>
+  <title>SM-Bef Global Chat App</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,7 +11,7 @@
   <!-- Login / Register Screen -->
   <div id="auth-screen" class="auth-overlay">
     <div class="auth-box">
-      <h2 id="auth-title">Login</h2>
+      <h2 id="auth-title">SM-Bef Login</h2>
       <p class="auth-subtitle">Unique Username & Password System</p>
       
       <div id="auth-error" class="error-msg"></div>
@@ -19,7 +19,7 @@
       <input type="text" id="username-input" placeholder="Enter unique @username" autocomplete="off">
       <input type="password" id="password-input" placeholder="Enter password">
       
-      <button id="auth-submit-btn">Login</button>
+      <button type="button" id="auth-submit-btn">Login</button>
       
       <p class="auth-switch">
         <span id="auth-switch-text">Need an account?</span>
@@ -33,12 +33,12 @@
     
     <!-- Top Header with Triple Line (Hamburger) Button -->
     <header class="top-header">
-      <button id="menu-toggle-btn" class="menu-btn" aria-label="Toggle Contacts">☰</button>
+      <button type="button" id="menu-toggle-btn" class="menu-btn" aria-label="Toggle Contacts">☰</button>
       <div class="header-info">
-        <span id="active-contact-name">Select a Contact</span>
+        <span id="active-contact-name">🌐 SM-Bef Global Chat</span>
         <small id="logged-in-user"></small>
       </div>
-      <button id="logout-btn" class="logout-btn">Logout</button>
+      <button type="button" id="logout-btn" class="logout-btn">Logout</button>
     </header>
 
     <div class="main-body">
@@ -48,14 +48,15 @@
       <!-- Slide-out Contact Drawer -->
       <aside id="sidebar" class="sidebar">
         <div class="sidebar-header">
-          <h3>Contacts</h3>
+          <h3>Contacts & Global Chat</h3>
         </div>
         
-        <!-- Add New Contact Form -->
+        <!-- Add Registered Contact Form -->
         <div class="add-contact-box">
-          <input type="text" id="new-contact-input" placeholder="Add @username...">
-          <button id="add-contact-btn">+</button>
+          <input type="text" id="new-contact-input" placeholder="Add registered @user" autocomplete="off">
+          <button type="button" id="add-contact-btn">+</button>
         </div>
+        <div id="contact-error" class="contact-error"></div>
 
         <ul id="contact-list" class="contact-list">
           <!-- Contacts injected by JavaScript -->
