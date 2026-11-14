@@ -30,7 +30,8 @@ def load_db():
             "users": {},
             "groups": default_groups(),
             "messages": [],
-            "deleted_ids": []
+            "deleted_ids": [],
+            "deleted_groups": []
         }
         save_db(initial_db)
         return initial_db
@@ -47,13 +48,16 @@ def load_db():
                 data["messages"] = []
             if "deleted_ids" not in data:
                 data["deleted_ids"] = []
+            if "deleted_groups" not in data:
+                data["deleted_groups"] = []
             return data
     except Exception:
         return {
             "users": {},
             "groups": default_groups(),
             "messages": [],
-            "deleted_ids": []
+            "deleted_ids": [],
+            "deleted_groups": []
         }
 
 def save_db(data):
@@ -75,7 +79,7 @@ def keep_render_awake():
         try:
             req = urllib.request.Request(
                 f"{PUBLIC_RENDER_URL}/ping",
-                headers={'User-Agent': 'SM-Bef-KeepAlive/2.0'}
+                headers={'User-Agent': 'SM-Bef-KeepAlive/3.0'}
             )
             with urllib.request.urlopen(req, timeout=10) as response:
                 response.read()
@@ -113,18 +117,24 @@ def get_user_state(db, username):
     if 'ai' not in contacts:
         contacts.insert(1, 'ai')
 
-    # Clean out private groups the user was removed from
+    deleted_groups = set(db.get('deleted_groups', []))
+
     valid_contacts = []
     for c in contacts:
+        if c in deleted_groups:
+            continue
+        if c.startswith('group_') and c not in db['groups']:
+            continue
         if c in db['groups'] and c != 'global':
             grp = db['groups'][c]
             if grp.get('type') == 'private' and username not in grp.get('members', []):
                 continue
-        valid_contacts.append(c)
+        if c not in valid_contacts:
+            valid_contacts.append(c)
 
-    # Automatically include all public groups so everyone can see them
+    # Automatically include all active public groups
     for gid, grp in db['groups'].items():
-        if grp.get('type') == 'public' and gid not in valid_contacts:
+        if gid not in deleted_groups and grp.get('type') == 'public' and gid not in valid_contacts:
             valid_contacts.append(gid)
 
     user['contacts'] = valid_contacts
@@ -132,7 +142,7 @@ def get_user_state(db, username):
 
     visible_groups = {}
     for gid, grp in db['groups'].items():
-        if grp.get('type') == 'public' or username in grp.get('members', []):
+        if gid not in deleted_groups and (grp.get('type') == 'public' or username in grp.get('members', [])):
             visible_groups[gid] = grp
 
     return valid_contacts, visible_groups
@@ -145,10 +155,19 @@ def restore_backup():
     inc_groups = incoming.get('groups', {})
     inc_messages = incoming.get('messages', [])
     inc_deleted = incoming.get('deleted_ids', [])
+    inc_deleted_groups = incoming.get('deleted_groups', [])
 
     with db_lock:
         db = load_db()
         changed = False
+
+        for dg_id in inc_deleted_groups:
+            if dg_id not in db['deleted_groups']:
+                db['deleted_groups'].append(dg_id)
+                changed = True
+            if dg_id in db['groups'] and dg_id != 'global':
+                del db['groups'][dg_id]
+                changed = True
 
         for d_id in inc_deleted:
             if d_id not in db['deleted_ids']:
@@ -162,20 +181,21 @@ def restore_backup():
             else:
                 existing_contacts = db['users'][uname].get('contacts', ['global', 'ai'])
                 for c in udata.get('contacts', []):
-                    if c not in existing_contacts:
+                    if c not in existing_contacts and c not in db['deleted_groups']:
                         existing_contacts.append(c)
                         changed = True
                 db['users'][uname]['contacts'] = existing_contacts
 
         for gid, gdata in inc_groups.items():
-            if gid not in db['groups']:
+            if gid not in db['groups'] and gid not in db['deleted_groups']:
                 db['groups'][gid] = gdata
                 changed = True
 
         existing_map = {m.get('id'): m for m in db['messages'] if m.get('id')}
         for msg in inc_messages:
             msg_id = msg.get('id')
-            if not msg_id or msg_id in db['deleted_ids']:
+            msg_to = msg.get('to')
+            if not msg_id or msg_id in db['deleted_ids'] or msg_to in db['deleted_groups']:
                 continue
             if msg_id not in existing_map:
                 db['messages'].append(msg)
@@ -195,7 +215,10 @@ def restore_backup():
                     changed = True
 
         before_len = len(db['messages'])
-        db['messages'] = [m for m in db['messages'] if m.get('id') not in db['deleted_ids']]
+        db['messages'] = [
+            m for m in db['messages']
+            if m.get('id') not in db['deleted_ids'] and m.get('to') not in db['deleted_groups']
+        ]
         if len(db['messages']) != before_len:
             changed = True
 
@@ -264,22 +287,37 @@ def login():
             "backup": db
         })
 
-# --- 3. Add Direct Registered Contact ---
+# --- 3. Add or Remove Direct Contact / Update Bio Status ---
 @app.route('/api/contacts', methods=['POST'])
 def add_contact():
     data = request.json or {}
     username = data.get('username', '').strip().lower().lstrip('@')
     contact = data.get('contact', '').strip().lower().lstrip('@')
-
-    if not username or not contact:
-        return jsonify({"error": "Enter a valid username."}), 400
-    if username == contact:
-        return jsonify({"error": "You cannot add yourself."}), 400
+    action = data.get('action', 'add').strip()
+    new_status = data.get('status', '').strip()
 
     with db_lock:
         db = load_db()
         if username not in db['users']:
             return jsonify({"error": "Please log in again."}), 401
+
+        if action == 'update_status':
+            db['users'][username]['status'] = new_status or "Available"
+            contacts, groups = get_user_state(db, username)
+            save_db(db)
+            return jsonify({"success": True, "status": db['users'][username]['status'], "backup": db})
+
+        if action == 'remove_contact':
+            my_contacts = db['users'][username].get('contacts', ['global', 'ai'])
+            if contact in my_contacts and contact not in ['global', 'ai']:
+                my_contacts.remove(contact)
+                db['users'][username]['contacts'] = my_contacts
+            contacts, groups = get_user_state(db, username)
+            save_db(db)
+            return jsonify({"success": True, "contacts": contacts, "groups": groups, "backup": db})
+
+        if not contact or username == contact:
+            return jsonify({"error": "Enter a valid username."}), 400
 
         if contact != 'ai' and contact not in db['users']:
             return jsonify({"error": f"@{contact} is NOT registered yet! They must create an account first."}), 404
@@ -336,7 +374,6 @@ def create_group():
         if gid not in db['users'][username]['contacts']:
             db['users'][username]['contacts'].append(gid)
 
-        # System announcement inside the group
         db['messages'].append({
             "id": f"{int(datetime.now().timestamp() * 1000)}_system",
             "from": "system",
@@ -356,7 +393,7 @@ def create_group():
             "backup": db
         })
 
-# --- 5. Manage Group (Add Member, Remove Member, Toggle Permission) ---
+# --- 5. Manage Group (Add Member, Remove Member, Toggle Permission, PERMANENT DELETE) ---
 @app.route('/api/groups/manage', methods=['POST'])
 def manage_group():
     data = request.json or {}
@@ -377,7 +414,39 @@ def manage_group():
         is_admin = (grp.get('admin') == actor)
         members = grp.get('members', [])
 
-        if action == 'toggle_permission':
+        # PERMANENTLY DELETE GROUP FOR EVERYONE
+        if action == 'delete_group':
+            if not is_admin:
+                return jsonify({"error": "Only the Group Admin can permanently delete this group."}), 403
+
+            del db['groups'][gid]
+            if gid not in db['deleted_groups']:
+                db['deleted_groups'].append(gid)
+
+            # Remove group from all users' contact lists
+            for uname, uobj in db['users'].items():
+                u_contacts = uobj.get('contacts', [])
+                if gid in u_contacts:
+                    u_contacts.remove(gid)
+                    uobj['contacts'] = u_contacts
+
+            # Delete all messages belonging to this group
+            for m in db['messages']:
+                if m.get('to') == gid and m.get('id') not in db['deleted_ids']:
+                    db['deleted_ids'].append(m.get('id'))
+            db['messages'] = [m for m in db['messages'] if m.get('to') != gid]
+
+            contacts, groups = get_user_state(db, actor)
+            save_db(db)
+            return jsonify({
+                "success": True,
+                "deleted_group_id": gid,
+                "contacts": contacts,
+                "groups": groups,
+                "backup": db
+            })
+
+        elif action == 'toggle_permission':
             if not is_admin:
                 return jsonify({"error": "Only the group admin can change permissions."}), 403
             grp['allow_member_add'] = not grp.get('allow_member_add', False)
@@ -421,7 +490,7 @@ def manage_group():
             if not is_admin and actor != target:
                 return jsonify({"error": "Only the Group Admin can remove members."}), 403
             if target == grp.get('admin'):
-                return jsonify({"error": "The Group Admin cannot be removed."}), 400
+                return jsonify({"error": "The Group Admin cannot be removed. Use 'Delete Group Permanently' instead."}), 400
             if target in members:
                 members.remove(target)
                 grp['members'] = members
@@ -463,7 +532,9 @@ def get_messages():
 
         contacts, groups = get_user_state(db, username)
 
-        # Verify access if it's a group
+        if contact in db.get('deleted_groups', []):
+            return jsonify({"error": "Group was deleted.", "contacts": contacts, "groups": groups}), 404
+
         if contact in db['groups']:
             grp = db['groups'][contact]
             if grp.get('type') == 'private' and username not in grp.get('members', []):
@@ -486,7 +557,7 @@ def get_messages():
         if contact in db['users']:
             contact_meta = {
                 "last_seen": db['users'][contact].get('last_seen', 'Online'),
-                "status": db['users'][contact].get('status', '')
+                "status": db['users'][contact].get('status', 'Available')
             }
 
         return jsonify({
@@ -497,7 +568,7 @@ def get_messages():
             "backup": db
         })
 
-# --- 7. Send Message (Text, Links, Photo, Audio, Reply, Forward, AI) ---
+# --- 7. Send Message (Text, Links, Camera Photo, Gallery, Audio, Reply, Forward, AI) ---
 @app.route('/api/messages', methods=['POST'])
 def send_message():
     data = request.json or {}
@@ -518,7 +589,9 @@ def send_message():
         if sender != 'ai' and sender not in db['users']:
             return jsonify({"error": "Sender not registered."}), 401
 
-        # Check Private Group Membership Permission
+        if receiver in db.get('deleted_groups', []):
+            return jsonify({"error": "This group has been permanently deleted."}), 404
+
         if receiver in db['groups'] and receiver != 'global':
             grp = db['groups'][receiver]
             if grp.get('type') == 'private' and sender != 'ai' and sender not in grp.get('members', []):
@@ -601,15 +674,42 @@ def edit_message():
 
         return jsonify({"error": "Message not found."}), 404
 
-# --- 9. Delete Message ---
+# --- 9. Delete Single Message OR Clear Entire Chat ---
 @app.route('/api/messages/delete', methods=['POST'])
 def delete_message():
     data = request.json or {}
     username = data.get('username', '').strip().lower().lstrip('@')
     msg_id = data.get('id', '').strip()
+    clear_chat = data.get('clear_chat', '').strip().lower()
 
     with db_lock:
         db = load_db()
+
+        # Clear entire chat history if requested
+        if clear_chat:
+            if clear_chat in db['groups']:
+                grp = db['groups'][clear_chat]
+                if clear_chat != 'global' and grp.get('admin') != username:
+                    return jsonify({"error": "Only the Group Admin can clear group chat history."}), 403
+                for m in db['messages']:
+                    if m.get('to') == clear_chat and m.get('id') not in db['deleted_ids']:
+                        db['deleted_ids'].append(m.get('id'))
+                db['messages'] = [m for m in db['messages'] if m.get('to') != clear_chat]
+            else:
+                kept = []
+                for m in db['messages']:
+                    is_pair = (m.get('from') == username and m.get('to') == clear_chat) or \
+                              (m.get('from') == clear_chat and m.get('to') == username)
+                    if is_pair:
+                        if m.get('id') not in db['deleted_ids']:
+                            db['deleted_ids'].append(m.get('id'))
+                    else:
+                        kept.append(m)
+                db['messages'] = kept
+
+            save_db(db)
+            return jsonify({"success": True, "backup": db})
+
         target = next((m for m in db['messages'] if m.get('id') == msg_id), None)
         if not target:
             return jsonify({"error": "Message not found."}), 404
