@@ -12,7 +12,7 @@
   <div id="auth-screen" class="auth-overlay">
     <div class="auth-box">
       <h2 id="auth-title">SM-Bef Pro Login</h2>
-      <p class="auth-subtitle">WhatsApp Pro + AI + Public/Private Groups</p>
+      <p class="auth-subtitle">WhatsApp Pro + Live Camera + AI + Groups</p>
       
       <div id="auth-error" class="error-msg"></div>
       
@@ -41,8 +41,9 @@
       <div class="header-tools">
         <input type="text" id="chat-search-input" class="chat-search-input hidden" placeholder="Search chat...">
         <button type="button" id="search-toggle-btn" class="tool-btn" title="Search Messages">🔍</button>
-        <button type="button" id="star-filter-btn" class="tool-btn" title="Show Starred Messages">⭐</button>
-        <button type="button" id="group-info-btn" class="tool-btn hidden" title="Group Settings & Members">⚙️</button>
+        <button type="button" id="star-filter-btn" class="tool-btn" title="Starred Messages">⭐</button>
+        <button type="button" id="clear-chat-btn" class="tool-btn" title="Clear Chat History">🧹</button>
+        <button type="button" id="group-info-btn" class="tool-btn hidden" title="Group Settings & Delete">⚙️</button>
         <button type="button" id="theme-toggle-btn" class="tool-btn" title="Dark Mode">🌙</button>
         <button type="button" id="logout-btn" class="logout-btn">Logout</button>
       </div>
@@ -54,7 +55,7 @@
       <!-- Slide-out Sidebar Drawer -->
       <aside id="sidebar" class="sidebar">
         <div class="sidebar-header">
-          <div>
+          <div id="edit-status-trigger" style="cursor:pointer;" title="Tap to change your status">
             <h3>Chats & Groups</h3>
             <small id="logged-in-user"></small>
           </div>
@@ -109,19 +110,37 @@
           <div id="gif-grid" class="gif-grid"></div>
         </div>
 
-        <!-- Hidden File Input for Camera/Gallery Photos -->
-        <input type="file" id="photo-input" accept="image/*" class="hidden">
+        <!-- Separate Hidden File Inputs for Gallery vs Hardware Camera -->
+        <input type="file" id="gallery-input" accept="image/*" class="hidden">
+        <input type="file" id="hardware-camera-input" accept="image/*" capture="environment" class="hidden">
 
-        <!-- Bottom Input Bar -->
+        <!-- Bottom Input Bar (Now with BOTH Live Camera 📸 and Gallery 🖼) -->
         <form id="message-form" class="input-bar">
           <button type="button" id="gif-toggle-btn" class="bar-icon-btn" title="Send GIF">GIF</button>
-          <button type="button" id="photo-btn" class="bar-icon-btn" title="Send Photo">📷</button>
+          <button type="button" id="camera-btn" class="bar-icon-btn" title="Click Live Picture (Camera)">📸</button>
+          <button type="button" id="gallery-btn" class="bar-icon-btn" title="Choose Photo from Gallery">🖼</button>
           <button type="button" id="voice-btn" class="bar-icon-btn" title="Record Voice Note">🎤</button>
           <button type="button" id="ask-ai-btn" class="bar-icon-btn ai-glow-btn" title="Ask AI Assistant">🤖</button>
-          <input type="text" id="message-input" placeholder="Message (or type /ai question)..." autocomplete="off">
+          <input type="text" id="message-input" placeholder="Message (or /ai question)..." autocomplete="off">
           <button type="submit" id="send-btn">Send</button>
         </form>
       </main>
+    </div>
+  </div>
+
+  <!-- Live Camera Viewfinder Modal (Click Pictures Directly in App!) -->
+  <div id="camera-modal" class="modal-overlay hidden">
+    <div class="modal-box camera-box">
+      <h3>📸 Take a Live Photo</h3>
+      <video id="camera-video" autoplay playsinline class="camera-video"></video>
+      <div class="camera-controls">
+        <button type="button" id="switch-camera-btn" class="btn-secondary">🔄 Flip Camera</button>
+        <button type="button" id="snap-photo-btn" class="btn-primary">📸 Click Picture</button>
+        <button type="button" id="native-camera-fallback-btn" class="btn-secondary">📱 Phone Camera App</button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="close-camera-btn" class="btn-secondary">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -149,7 +168,7 @@
     </div>
   </div>
 
-  <!-- Group Info, Permissions & Member Management Modal -->
+  <!-- Group Info, Permissions, Member Management & PERMANENT DELETE Modal -->
   <div id="group-info-modal" class="modal-overlay hidden">
     <div class="modal-box">
       <h3 id="info-group-title">Group Info</h3>
@@ -171,26 +190,50 @@
       <h4>Group Members:</h4>
       <ul id="group-members-list" class="members-list"></ul>
 
+      <!-- Permanent Group Delete Button (Admin Only) & Leave Group Button -->
+      <div class="group-danger-zone">
+        <button type="button" id="leave-group-btn" class="btn-warning">🚪 Exit Group</button>
+        <button type="button" id="delete-group-perm-btn" class="btn-danger hidden">🗑 Delete Group Permanently for All</button>
+      </div>
+
       <div class="modal-actions">
         <button type="button" id="close-group-info-btn" class="btn-secondary">Close</button>
       </div>
     </div>
   </div>
 
-  <!-- Translator Language Modal -->
+  <!-- Translator Modal (20+ Languages + Custom Any-Language Input) -->
   <div id="translate-modal" class="modal-overlay hidden">
     <div class="modal-box">
-      <h3>🌐 Translate Message</h3>
+      <h3>🌐 Universal Translator</h3>
       <p id="translate-original-text" class="modal-sub"></p>
+      <label class="modal-label">Choose Language:</label>
       <select id="translate-lang-select">
         <option value="en">English</option>
         <option value="hi">Hindi (हिन्दी)</option>
+        <option value="sa">Sanskrit (संस्कृतम्)</option>
+        <option value="mr">Marathi (मराठी)</option>
+        <option value="gu">Gujarati (गुजराती)</option>
+        <option value="bn">Bengali (বাংলা)</option>
+        <option value="ta">Tamil (தமிழ்)</option>
+        <option value="te">Telugu (తెలుగు)</option>
+        <option value="kn">Kannada (ಕನ್ನಡ)</option>
+        <option value="ml">Malayalam (മലയാളം)</option>
+        <option value="pa">Punjabi (ਪੰਜਾਬੀ)</option>
+        <option value="ur">Urdu (اردو)</option>
         <option value="es">Spanish (Español)</option>
         <option value="fr">French (Français)</option>
-        <option value="sa">Sanskrit (संस्कृतम्)</option>
         <option value="de">German (Deutsch)</option>
+        <option value="ru">Russian (Русский)</option>
+        <option value="ja">Japanese (日本語)</option>
+        <option value="ko">Korean (한국어)</option>
+        <option value="ar">Arabic (العربية)</option>
+        <option value="zh-CN">Chinese (中文)</option>
+        <option value="pt">Portuguese (Português)</option>
+        <option value="it">Italian (Italiano)</option>
       </select>
-      <div id="translate-result-box" class="translate-result">Select a language and tap Translate.</div>
+      <input type="text" id="custom-lang-input" placeholder="Or type any language code (e.g. ne, tr, id, th)..." autocomplete="off">
+      <div id="translate-result-box" class="translate-result">Select a language and tap Translate Now.</div>
       <div class="modal-actions">
         <button type="button" id="close-translate-btn" class="btn-secondary">Close</button>
         <button type="button" id="run-translate-btn" class="btn-primary">Translate Now</button>
