@@ -1,5 +1,5 @@
-const BACKUP_STORAGE_KEY = 'smbef_self_healing_backup_v2';
-const SESSION_USER_KEY = 'smbef_logged_in_user_v2';
+const BACKUP_STORAGE_KEY = 'smbef_self_healing_backup_v3';
+const SESSION_USER_KEY = 'smbef_logged_in_user_v3';
 
 const PRESET_GIFS = [
   'https://media.giphy.com/media/111ebonMs90YLu/giphy.gif',
@@ -28,6 +28,10 @@ let searchQuery = '';
 let mediaRecorder = null;
 let audioChunks = [];
 
+// Live Camera Stream State
+let cameraStream = null;
+let useFrontCamera = false;
+
 // --- DOM Elements ---
 const authScreen = document.getElementById('auth-screen');
 const appContainer = document.getElementById('app-container');
@@ -50,6 +54,7 @@ const contactErrorEl = document.getElementById('contact-error');
 const activeContactNameEl = document.getElementById('active-contact-name');
 const activeContactSubEl = document.getElementById('active-contact-sub');
 const loggedInUserEl = document.getElementById('logged-in-user');
+const editStatusTrigger = document.getElementById('edit-status-trigger');
 const logoutBtn = document.getElementById('logout-btn');
 const messagesListEl = document.getElementById('messages-list');
 const messageForm = document.getElementById('message-form');
@@ -59,6 +64,7 @@ const sendBtn = document.getElementById('send-btn');
 const searchToggleBtn = document.getElementById('search-toggle-btn');
 const chatSearchInput = document.getElementById('chat-search-input');
 const starFilterBtn = document.getElementById('star-filter-btn');
+const clearChatBtn = document.getElementById('clear-chat-btn');
 const groupInfoBtn = document.getElementById('group-info-btn');
 const themeToggleBtn = document.getElementById('theme-toggle-btn');
 
@@ -77,8 +83,19 @@ const gifPicker = document.getElementById('gif-picker');
 const gifGrid = document.getElementById('gif-grid');
 const customGifInput = document.getElementById('custom-gif-input');
 const sendCustomGifBtn = document.getElementById('send-custom-gif-btn');
-const photoBtn = document.getElementById('photo-btn');
-const photoInput = document.getElementById('photo-input');
+
+// Camera & Gallery Elements
+const cameraBtn = document.getElementById('camera-btn');
+const galleryBtn = document.getElementById('gallery-btn');
+const galleryInput = document.getElementById('gallery-input');
+const hardwareCameraInput = document.getElementById('hardware-camera-input');
+const cameraModal = document.getElementById('camera-modal');
+const cameraVideo = document.getElementById('camera-video');
+const switchCameraBtn = document.getElementById('switch-camera-btn');
+const snapPhotoBtn = document.getElementById('snap-photo-btn');
+const nativeCameraFallbackBtn = document.getElementById('native-camera-fallback-btn');
+const closeCameraBtn = document.getElementById('close-camera-btn');
+
 const voiceBtn = document.getElementById('voice-btn');
 
 // Group Modals
@@ -101,12 +118,15 @@ const groupAddUserInput = document.getElementById('group-add-user-input');
 const groupAddUserBtn = document.getElementById('group-add-user-btn');
 const groupManageError = document.getElementById('group-manage-error');
 const groupMembersList = document.getElementById('group-members-list');
+const leaveGroupBtn = document.getElementById('leave-group-btn');
+const deleteGroupPermBtn = document.getElementById('delete-group-perm-btn');
 const closeGroupInfoBtn = document.getElementById('close-group-info-btn');
 
 // Translator Modal
 const translateModal = document.getElementById('translate-modal');
 const translateOriginalText = document.getElementById('translate-original-text');
 const translateLangSelect = document.getElementById('translate-lang-select');
+const customLangInput = document.getElementById('custom-lang-input');
 const translateResultBox = document.getElementById('translate-result-box');
 const closeTranslateBtn = document.getElementById('close-translate-btn');
 const runTranslateBtn = document.getElementById('run-translate-btn');
@@ -123,7 +143,7 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// --- Glowing Blue Link Formatter (Auto-Detects URLs and Opens on Click) ---
+// --- Glowing Blue Link Formatter ---
 function formatTextWithGlowingLinks(rawText) {
   const safe = escapeHtml(rawText);
   const urlRegex = /((https?:\/\/|www\.)[^\s<]+)/gi;
@@ -184,6 +204,22 @@ window.addEventListener('DOMContentLoaded', async () => {
 // --- Theme / Dark Mode ---
 themeToggleBtn.addEventListener('click', () => {
   document.body.classList.toggle('dark-mode');
+});
+
+// --- Edit User Bio / Status ---
+editStatusTrigger.addEventListener('click', async () => {
+  const newStatus = prompt('Enter your new WhatsApp Bio / Status:', 'Hey there! I am using SM-Bef Pro.');
+  if (newStatus === null) return;
+  const res = await fetch('/api/contacts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: currentUser, action: 'update_status', status: newStatus })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    if (data.backup) saveLocalBackup(data.backup);
+    loggedInUserEl.textContent = `@${currentUser} • ${data.status}`;
+  }
 });
 
 // --- Authentication ---
@@ -254,7 +290,7 @@ function loginSuccess(username, password, contacts, groups) {
 
   authScreen.classList.add('hidden');
   appContainer.classList.remove('hidden');
-  loggedInUserEl.textContent = `@${currentUser} • Online`;
+  loggedInUserEl.textContent = `@${currentUser} • Tap to set status`;
 
   renderContacts();
   selectContact('global');
@@ -384,7 +420,7 @@ async function handleAddContact() {
 
 addContactBtn.addEventListener('click', handleAddContact);
 
-// --- Public & Private Group Creation & Admin Management ---
+// --- Public & Private Group Creation, Admin Controls & PERMANENT DELETE ---
 openCreateGroupBtn.addEventListener('click', () => {
   groupNameInput.value = '';
   createGroupModal.classList.remove('hidden');
@@ -440,8 +476,10 @@ function openGroupInfoModal() {
     permissionStatusText.textContent = grp.allow_member_add
       ? 'Member Add Permission: ON (All members can add people)'
       : 'Member Add Permission: OFF (Only Admin can add people)';
+    deleteGroupPermBtn.classList.remove('hidden');
   } else {
     adminPermissionBox.classList.add('hidden');
+    deleteGroupPermBtn.classList.add('hidden');
   }
 
   if (isAdmin || grp.allow_member_add) {
@@ -484,6 +522,18 @@ groupAddUserBtn.addEventListener('click', () => {
   manageGroupAction('add_member', target);
 });
 
+leaveGroupBtn.addEventListener('click', () => {
+  if (!confirm('Are you sure you want to exit this group?')) return;
+  manageGroupAction('remove_member', currentUser);
+});
+
+deleteGroupPermBtn.addEventListener('click', () => {
+  const grp = groupsMap[activeContact];
+  if (!grp) return;
+  if (!confirm(`PERMANENTLY DELETE "${grp.name}" for ALL members? This cannot be undone!`)) return;
+  manageGroupAction('delete_group', '');
+});
+
 async function manageGroupAction(action, target) {
   groupManageError.textContent = '';
   try {
@@ -505,14 +555,38 @@ async function manageGroupAction(action, target) {
     if (data.backup) saveLocalBackup(data.backup);
     userContacts = data.contacts;
     groupsMap = data.groups;
-    openGroupInfoModal();
-    syncMessagesAndContacts(true);
+
+    if (action === 'delete_group' || (action === 'remove_member' && target === currentUser)) {
+      groupInfoModal.classList.add('hidden');
+      selectContact('global');
+    } else {
+      openGroupInfoModal();
+      syncMessagesAndContacts(true);
+    }
   } catch (err) {
     groupManageError.textContent = 'Server error.';
   }
 }
 
-// --- Built-in AI Assistant (Search, Identification & Math) ---
+// --- Clear Chat History ---
+clearChatBtn.addEventListener('click', async () => {
+  if (!confirm('Clear all messages in this chat?')) return;
+  const res = await fetch('/api/messages/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: currentUser, clear_chat: activeContact })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    if (data.backup) saveLocalBackup(data.backup);
+    syncMessagesAndContacts(true);
+  } else {
+    const err = await res.json();
+    alert(err.error || 'Could not clear chat.');
+  }
+});
+
+// --- Built-in AI Assistant ---
 askAiBtn.addEventListener('click', () => {
   aiQuickBar.classList.toggle('hidden');
 });
@@ -528,15 +602,13 @@ document.querySelectorAll('.ai-chip').forEach(chip => {
 async function generateSmartAiAnswer(query) {
   const clean = query.replace(/^\/ai\s+/i, '').trim();
 
-  // 1. Check if it's a math expression
   if (/^[0-9+\-*/().\s^%]+$/.test(clean)) {
     try {
       const result = Function(`"use strict"; return (${clean})`)();
-      return `🧮 **AI Math Result:**\n${clean} = ${result}`;
+      return `🧮 AI Math Result:\n${clean} = ${result}`;
     } catch (e) {}
   }
 
-  // 2. Live Wikipedia Identification & Search
   const topic = clean
     .replace(/^(identify|what is|who is|tell me about|search|define|meaning of)\s+/i, '')
     .replace(/[?]/g, '')
@@ -559,11 +631,10 @@ async function generateSmartAiAnswer(query) {
     }
   } catch (e) {}
 
-  return `🤖 AI Assistant:\nI searched for "${clean}". Tip: Ask me to identify any person, place, science term, math equation, or tap 🌐 on any message to translate it!`;
+  return `🤖 AI Assistant:\nI searched for "${clean}". Ask me to identify any person, science concept, place, or math problem, or tap 🌐 on any message to translate into any language!`;
 }
 
 async function runAiQuery(userPrompt) {
-  // First send the user's question
   await fetch('/api/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -575,7 +646,6 @@ async function runAiQuery(userPrompt) {
   });
   await syncMessagesAndContacts(true);
 
-  // Generate AI response and post it back to the active chat
   const aiAnswer = await generateSmartAiAnswer(userPrompt);
   await fetch('/api/messages', {
     method: 'POST',
@@ -589,12 +659,13 @@ async function runAiQuery(userPrompt) {
   await syncMessagesAndContacts(true);
 }
 
-// --- Built-in Translator ---
+// --- Universal Translator (Supports Any Language) ---
 let textToTranslate = '';
 function openTranslator(text) {
   textToTranslate = text;
   translateOriginalText.textContent = `"${text}"`;
-  translateResultBox.textContent = 'Select language and tap Translate Now.';
+  customLangInput.value = '';
+  translateResultBox.textContent = 'Select a language or type any language code and tap Translate Now.';
   translateModal.classList.remove('hidden');
 }
 
@@ -602,10 +673,10 @@ closeTranslateBtn.addEventListener('click', () => translateModal.classList.add('
 
 runTranslateBtn.addEventListener('click', async () => {
   if (!textToTranslate) return;
-  const targetLang = translateLangSelect.value;
+  const targetLang = customLangInput.value.trim() || translateLangSelect.value;
   translateResultBox.textContent = 'Translating...';
   try {
-    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(textToTranslate)}&langpair=autodetect|${targetLang}`;
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(textToTranslate)}&langpair=autodetect|${encodeURIComponent(targetLang)}`;
     const res = await fetch(url);
     const data = await res.json();
     const translated = data?.responseData?.translatedText || 'Translation unavailable for this phrase.';
@@ -615,10 +686,88 @@ runTranslateBtn.addEventListener('click', async () => {
   }
 });
 
-// --- Photo Sharing & Voice Note Recording ---
-photoBtn.addEventListener('click', () => photoInput.click());
+// --- LIVE CAMERA (📸) & GALLERY (🖼) SYSTEM ---
+async function startLiveCamera() {
+  stopLiveCamera();
+  try {
+    const constraints = {
+      video: { facingMode: useFrontCamera ? 'user' : 'environment' },
+      audio: false
+    };
+    cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+    cameraVideo.srcObject = cameraStream;
+    cameraModal.classList.remove('hidden');
+  } catch (err) {
+    // Fallback to phone's native hardware camera app if browser blocks webcam stream
+    hardwareCameraInput.click();
+  }
+}
 
-photoInput.addEventListener('change', (e) => {
+function stopLiveCamera() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+  }
+  cameraVideo.srcObject = null;
+}
+
+cameraBtn.addEventListener('click', () => {
+  startLiveCamera();
+});
+
+switchCameraBtn.addEventListener('click', () => {
+  useFrontCamera = !useFrontCamera;
+  startLiveCamera();
+});
+
+nativeCameraFallbackBtn.addEventListener('click', () => {
+  stopLiveCamera();
+  cameraModal.classList.add('hidden');
+  hardwareCameraInput.click();
+});
+
+closeCameraBtn.addEventListener('click', () => {
+  stopLiveCamera();
+  cameraModal.classList.add('hidden');
+});
+
+snapPhotoBtn.addEventListener('click', async () => {
+  if (!cameraVideo.videoWidth) return;
+  const canvas = document.createElement('canvas');
+  const maxDim = 520;
+  let w = cameraVideo.videoWidth;
+  let h = cameraVideo.videoHeight;
+  if (w > h && w > maxDim) {
+    h = Math.round((h * maxDim) / w);
+    w = maxDim;
+  } else if (h > maxDim) {
+    w = Math.round((w * maxDim) / h);
+    h = maxDim;
+  }
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext('2d').drawImage(cameraVideo, 0, 0, w, h);
+  const base64Image = canvas.toDataURL('image/jpeg', 0.75);
+
+  stopLiveCamera();
+  cameraModal.classList.add('hidden');
+
+  await fetch('/api/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: currentUser,
+      to: activeContact,
+      image: base64Image
+    })
+  });
+  syncMessagesAndContacts(true);
+});
+
+// Gallery Button & Hardware Camera Fallback Handler
+galleryBtn.addEventListener('click', () => galleryInput.click());
+
+function handleImageFileSelected(e) {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
@@ -626,7 +775,7 @@ photoInput.addEventListener('change', (e) => {
     const img = new Image();
     img.onload = async () => {
       const canvas = document.createElement('canvas');
-      const maxDim = 480;
+      const maxDim = 520;
       let w = img.width;
       let h = img.height;
       if (w > h && w > maxDim) {
@@ -639,7 +788,7 @@ photoInput.addEventListener('change', (e) => {
       canvas.width = w;
       canvas.height = h;
       canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      const base64Image = canvas.toDataURL('image/jpeg', 0.7);
+      const base64Image = canvas.toDataURL('image/jpeg', 0.75);
 
       await fetch('/api/messages', {
         method: 'POST',
@@ -655,9 +804,13 @@ photoInput.addEventListener('change', (e) => {
     img.src = ev.target.result;
   };
   reader.readAsDataURL(file);
-  photoInput.value = '';
-});
+  e.target.value = '';
+}
 
+galleryInput.addEventListener('change', handleImageFileSelected);
+hardwareCameraInput.addEventListener('change', handleImageFileSelected);
+
+// --- Voice Note Recording ---
 voiceBtn.addEventListener('click', async () => {
   if (mediaRecorder && mediaRecorder.state === 'recording') {
     mediaRecorder.stop();
@@ -827,11 +980,15 @@ async function forwardMessage(msg) {
 
 async function deleteMessageById(msgId) {
   if (!confirm('Delete this message for everyone?')) return;
-  await fetch('/api/messages/delete', {
+  const res = await fetch('/api/messages/delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: currentUser, id: msgId })
   });
+  if (res.ok) {
+    const data = await res.json();
+    if (data.backup) saveLocalBackup(data.backup);
+  }
   syncMessagesAndContacts(false);
 }
 
@@ -845,6 +1002,11 @@ async function syncMessagesAndContacts(forceScroll = false) {
       await restoreServerIfNeeded();
       return;
     }
+    if (res.status === 404) {
+      // Active group was deleted by Admin -> switch back to Global Chat automatically
+      selectContact('global');
+      return;
+    }
     if (!res.ok) return;
 
     const data = await res.json();
@@ -854,6 +1016,10 @@ async function syncMessagesAndContacts(forceScroll = false) {
     if (data.contacts && JSON.stringify(data.contacts) !== JSON.stringify(userContacts)) {
       userContacts = data.contacts;
       renderContacts();
+    }
+
+    if (data.contact_meta && data.contact_meta.status && !groupsMap[activeContact] && activeContact !== 'global' && activeContact !== 'ai') {
+      activeContactSubEl.textContent = `${data.contact_meta.status} • Last seen ${data.contact_meta.last_seen}`;
     }
 
     cachedMessages = data.messages || [];
@@ -900,7 +1066,6 @@ function renderMessages(chatMessages, forceScroll = false) {
     const imgHtml = msg.image ? `<img src="${escapeHtml(msg.image)}" class="msg-media-img" alt="Photo">` : '';
     const audioHtml = msg.audio ? `<audio controls src="${escapeHtml(msg.audio)}" class="msg-audio"></audio>` : '';
 
-    // Reactions
     const reactionsObj = msg.reactions || {};
     const reactionEntries = Object.entries(reactionsObj);
     let reactionsHtml = '';
@@ -931,7 +1096,6 @@ function renderMessages(chatMessages, forceScroll = false) {
 
     const actionsSpan = div.querySelector('.msg-actions');
 
-    // Quick Emoji Reaction Button
     const reactBtn = document.createElement('button');
     reactBtn.className = 'action-btn';
     reactBtn.textContent = '😊';
@@ -942,7 +1106,6 @@ function renderMessages(chatMessages, forceScroll = false) {
     });
     actionsSpan.appendChild(reactBtn);
 
-    // Reply Button
     const replyBtn = document.createElement('button');
     replyBtn.className = 'action-btn';
     replyBtn.textContent = '↩';
@@ -950,7 +1113,6 @@ function renderMessages(chatMessages, forceScroll = false) {
     replyBtn.addEventListener('click', () => startReplyMode(msg));
     actionsSpan.appendChild(replyBtn);
 
-    // Translate Button
     if (msg.text) {
       const transBtn = document.createElement('button');
       transBtn.className = 'action-btn';
@@ -959,7 +1121,6 @@ function renderMessages(chatMessages, forceScroll = false) {
       transBtn.addEventListener('click', () => openTranslator(msg.text));
       actionsSpan.appendChild(transBtn);
 
-      // Copy Button
       const copyBtn = document.createElement('button');
       copyBtn.className = 'action-btn';
       copyBtn.textContent = '📋';
@@ -968,7 +1129,6 @@ function renderMessages(chatMessages, forceScroll = false) {
       actionsSpan.appendChild(copyBtn);
     }
 
-    // Star Button
     const starBtn = document.createElement('button');
     starBtn.className = 'action-btn';
     starBtn.textContent = '⭐';
@@ -976,7 +1136,6 @@ function renderMessages(chatMessages, forceScroll = false) {
     starBtn.addEventListener('click', () => toggleStarMessage(msg.id));
     actionsSpan.appendChild(starBtn);
 
-    // Forward Button
     const fwdBtn = document.createElement('button');
     fwdBtn.className = 'action-btn';
     fwdBtn.textContent = '↪';
@@ -984,7 +1143,6 @@ function renderMessages(chatMessages, forceScroll = false) {
     fwdBtn.addEventListener('click', () => forwardMessage(msg));
     actionsSpan.appendChild(fwdBtn);
 
-    // Edit & Delete for Sender
     if (isSent && msg.id) {
       if (msg.text) {
         const editBtn = document.createElement('button');
@@ -1013,7 +1171,6 @@ messageForm.addEventListener('submit', async (e) => {
   const text = messageInput.value.trim();
   if (!text || !activeContact || !currentUser) return;
 
-  // Check if user is talking to @ai or typed /ai
   if (activeContact === 'ai' || text.toLowerCase().startsWith('/ai ')) {
     messageInput.value = '';
     cancelReplyMode();
@@ -1064,7 +1221,7 @@ messageForm.addEventListener('submit', async (e) => {
   }
 });
 
-// --- Mobile Keyboard Adjustment ---
+// --- Mobile Keyboard Viewport Fix ---
 if (window.visualViewport) {
   const adjustViewport = () => {
     appContainer.style.height = `${window.visualViewport.height}px`;
