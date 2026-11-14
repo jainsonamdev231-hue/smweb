@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=resizes-content">
-  <title>SM-Bef Global Chat App</title>
+  <title>SM-Bef Pro Messenger</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,8 +11,8 @@
   <!-- Login / Register Screen -->
   <div id="auth-screen" class="auth-overlay">
     <div class="auth-box">
-      <h2 id="auth-title">SM-Bef Login</h2>
-      <p class="auth-subtitle">Unique Username & Password System</p>
+      <h2 id="auth-title">SM-Bef Pro Login</h2>
+      <p class="auth-subtitle">WhatsApp Pro + AI + Public/Private Groups</p>
       
       <div id="auth-error" class="error-msg"></div>
       
@@ -31,52 +31,171 @@
   <!-- Main Messaging Application -->
   <div id="app-container" class="app-container hidden">
     
-    <!-- Top Header with Triple Line (Hamburger) Button -->
+    <!-- Top Header -->
     <header class="top-header">
       <button type="button" id="menu-toggle-btn" class="menu-btn" aria-label="Toggle Contacts">☰</button>
-      <div class="header-info">
+      <div class="header-info" id="header-info-btn">
         <span id="active-contact-name">🌐 SM-Bef Global Chat</span>
-        <small id="logged-in-user"></small>
+        <small id="active-contact-sub">Public Group • Tap for info</small>
       </div>
-      <button type="button" id="logout-btn" class="logout-btn">Logout</button>
+      <div class="header-tools">
+        <input type="text" id="chat-search-input" class="chat-search-input hidden" placeholder="Search chat...">
+        <button type="button" id="search-toggle-btn" class="tool-btn" title="Search Messages">🔍</button>
+        <button type="button" id="star-filter-btn" class="tool-btn" title="Show Starred Messages">⭐</button>
+        <button type="button" id="group-info-btn" class="tool-btn hidden" title="Group Settings & Members">⚙️</button>
+        <button type="button" id="theme-toggle-btn" class="tool-btn" title="Dark Mode">🌙</button>
+        <button type="button" id="logout-btn" class="logout-btn">Logout</button>
+      </div>
     </header>
 
     <div class="main-body">
-      <!-- Backdrop for mobile menu -->
       <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
 
-      <!-- Slide-out Contact Drawer -->
+      <!-- Slide-out Sidebar Drawer -->
       <aside id="sidebar" class="sidebar">
         <div class="sidebar-header">
-          <h3>Contacts & Global Chat</h3>
+          <div>
+            <h3>Chats & Groups</h3>
+            <small id="logged-in-user"></small>
+          </div>
+          <button type="button" id="open-create-group-btn" class="new-group-btn">+ Group</button>
         </div>
         
-        <!-- Add Registered Contact Form -->
+        <!-- Add Direct Registered Contact -->
         <div class="add-contact-box">
           <input type="text" id="new-contact-input" placeholder="Add registered @user" autocomplete="off">
           <button type="button" id="add-contact-btn">+</button>
         </div>
         <div id="contact-error" class="contact-error"></div>
 
-        <ul id="contact-list" class="contact-list">
-          <!-- Contacts injected by JavaScript -->
-        </ul>
+        <ul id="contact-list" class="contact-list"></ul>
       </aside>
 
-      <!-- Chat Area -->
+      <!-- Main Chat Area -->
       <main class="chat-area">
-        <div id="messages-list" class="messages-list">
-          <!-- Messages injected by JavaScript -->
+        <div id="messages-list" class="messages-list"></div>
+
+        <!-- Reply Preview Banner -->
+        <div id="reply-banner" class="context-banner hidden">
+          <div class="banner-text">
+            <strong id="reply-to-user">Replying</strong>
+            <span id="reply-to-text"></span>
+          </div>
+          <button type="button" id="cancel-reply-btn">✕</button>
         </div>
 
-        <!-- Mobile Keyboard-Safe Input Bar -->
+        <!-- Edit Mode Banner -->
+        <div id="edit-banner" class="context-banner hidden">
+          <span>✎ Editing message...</span>
+          <button type="button" id="cancel-edit-btn">Cancel ✕</button>
+        </div>
+
+        <!-- Built-in AI Quick Bar -->
+        <div id="ai-quick-bar" class="ai-quick-bar hidden">
+          <span>🤖 Ask AI anything (identifications, facts, math, translations):</span>
+          <div class="ai-chips">
+            <button type="button" class="ai-chip" data-q="Identify what Photosynthesis is">Identify Photosynthesis</button>
+            <button type="button" class="ai-chip" data-q="Who is Albert Einstein?">Who is Einstein?</button>
+            <button type="button" class="ai-chip" data-q="Calculate 125 * 48">Math: 125 * 48</button>
+          </div>
+        </div>
+
+        <!-- Pop-up GIF Picker Drawer -->
+        <div id="gif-picker" class="gif-picker hidden">
+          <div class="gif-custom-bar">
+            <input type="url" id="custom-gif-input" placeholder="Paste any .gif link..." autocomplete="off">
+            <button type="button" id="send-custom-gif-btn">Send GIF</button>
+          </div>
+          <div id="gif-grid" class="gif-grid"></div>
+        </div>
+
+        <!-- Hidden File Input for Camera/Gallery Photos -->
+        <input type="file" id="photo-input" accept="image/*" class="hidden">
+
+        <!-- Bottom Input Bar -->
         <form id="message-form" class="input-bar">
-          <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off">
+          <button type="button" id="gif-toggle-btn" class="bar-icon-btn" title="Send GIF">GIF</button>
+          <button type="button" id="photo-btn" class="bar-icon-btn" title="Send Photo">📷</button>
+          <button type="button" id="voice-btn" class="bar-icon-btn" title="Record Voice Note">🎤</button>
+          <button type="button" id="ask-ai-btn" class="bar-icon-btn ai-glow-btn" title="Ask AI Assistant">🤖</button>
+          <input type="text" id="message-input" placeholder="Message (or type /ai question)..." autocomplete="off">
           <button type="submit" id="send-btn">Send</button>
         </form>
       </main>
     </div>
+  </div>
 
+  <!-- Create Public / Private Group Modal -->
+  <div id="create-group-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <h3>Create New Group</h3>
+      <input type="text" id="group-name-input" placeholder="Group Name (e.g. Friends Squad)" autocomplete="off">
+      
+      <label class="modal-label">Select Group Type:</label>
+      <select id="group-type-select">
+        <option value="public">🌍 Public Group (Everyone can see & join like Global)</option>
+        <option value="private">🔒 Private Group (Only added members can see & chat)</option>
+      </select>
+
+      <label class="checkbox-row">
+        <input type="checkbox" id="group-allow-add-checkbox">
+        <span>Allow all members to add people (If unchecked, ONLY Admin can add)</span>
+      </label>
+
+      <div class="modal-actions">
+        <button type="button" id="close-create-group-btn" class="btn-secondary">Cancel</button>
+        <button type="button" id="confirm-create-group-btn" class="btn-primary">Create Group</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Group Info, Permissions & Member Management Modal -->
+  <div id="group-info-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <h3 id="info-group-title">Group Info</h3>
+      <p id="info-group-meta" class="modal-sub"></p>
+
+      <!-- Admin Permission Toggle -->
+      <div id="admin-permission-box" class="permission-box hidden">
+        <span id="permission-status-text"></span>
+        <button type="button" id="toggle-permission-btn" class="btn-small">Toggle</button>
+      </div>
+
+      <!-- Add Member to Group -->
+      <div id="group-add-member-bar" class="add-member-bar">
+        <input type="text" id="group-add-user-input" placeholder="Add registered @username" autocomplete="off">
+        <button type="button" id="group-add-user-btn" class="btn-primary">Add</button>
+      </div>
+      <div id="group-manage-error" class="error-msg"></div>
+
+      <h4>Group Members:</h4>
+      <ul id="group-members-list" class="members-list"></ul>
+
+      <div class="modal-actions">
+        <button type="button" id="close-group-info-btn" class="btn-secondary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Translator Language Modal -->
+  <div id="translate-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <h3>🌐 Translate Message</h3>
+      <p id="translate-original-text" class="modal-sub"></p>
+      <select id="translate-lang-select">
+        <option value="en">English</option>
+        <option value="hi">Hindi (हिन्दी)</option>
+        <option value="es">Spanish (Español)</option>
+        <option value="fr">French (Français)</option>
+        <option value="sa">Sanskrit (संस्कृतम्)</option>
+        <option value="de">German (Deutsch)</option>
+      </select>
+      <div id="translate-result-box" class="translate-result">Select a language and tap Translate.</div>
+      <div class="modal-actions">
+        <button type="button" id="close-translate-btn" class="btn-secondary">Close</button>
+        <button type="button" id="run-translate-btn" class="btn-primary">Translate Now</button>
+      </div>
+    </div>
   </div>
 
   <script src="script.js"></script>
